@@ -1,0 +1,40 @@
+[package]
+name        = "tabengine"
+version     = "0.1.0"
+description = "TabEngine — Guitar Tablature Player"
+authors     = []
+license     = "MIT"
+edition     = "2021"
+rust-version = "1.77"
+
+# The lib crate is compiled for both the tauri runner and for tests.
+[lib]
+name       = "tabengine_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+# ── build ─────────────────────────────────────────────────────────────────────
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+# ── runtime ───────────────────────────────────────────────────────────────────
+[dependencies]
+tauri          = { version = "2", features = [] }
+tauri-plugin-dialog = "2"
+tauri-plugin-shell  = "2"
+serde          = { version = "1", features = ["derive"] }
+serde_json     = "1"
+reqwest        = { version = "0.12", features = ["json", "rustls-tls"], default-features = false }
+
+# ── features ──────────────────────────────────────────────────────────────────
+[features]
+# custom-protocol bundles the Vite dist into the binary (production builds)
+default          = ["custom-protocol"]
+custom-protocol  = ["tauri/custom-protocol"]
+
+# ── release profile ───────────────────────────────────────────────────────────
+[profile.release]
+panic         = "abort"    # smaller binary, faster fail
+codegen-units = 1          # maximise optimisation
+lto           = true
+opt-level     = "s"        # optimise for size
+strip         = true

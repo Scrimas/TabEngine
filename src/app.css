@@ -1,0 +1,324 @@
+/* ╔══════════════════════════════════════════════════════════════════════╗
+   ║  TabEngine — Global Design System                                     ║
+   ║  Parchment UI · warm cream + brown ink · teal accent                 ║
+   ╚══════════════════════════════════════════════════════════════════════╝ */
+
+/* ── Design tokens ──────────────────────────────────────────────────────── */
+:root {
+  /* Backgrounds — lighter = more foreground */
+  --bg-base:     #f6f1e7;  /* main window / score viewport */
+  --bg-surface:  #ece6d4;  /* sidebar & mixer panels */
+  --bg-score:    #f6f1e7;  /* score area */
+  --bg-elevated: #faf7f0;  /* raised cards, inputs, buttons */
+  --bg-hover:    #e8e1ce;  /* hover fills */
+
+  /* Borders */
+  --border:       rgba(43, 40, 35, 0.12);
+  --border-hover: rgba(43, 40, 35, 0.22);
+
+  /* Accent — warm amber ink on parchment */
+  --accent:        #c07838;
+  --accent-bright: #d4944a;
+  --accent-dim:    rgba(192, 120, 56, 0.16);
+  --accent-glow:   rgba(192, 120, 56, 0.30);
+
+  /* Text */
+  --text-primary:   #2b2823;  /* dark-brown ink */
+  --text-secondary: #68594e;  /* mid-brown */
+  --text-muted:     #9e9180;  /* light brown */
+
+  /* Status colours — adjusted for light backgrounds */
+  --green:     #1a7a4a;
+  --green-dim: rgba(26, 122, 74, 0.14);
+  --red:       #b03a2e;
+  --red-dim:   rgba(176, 58, 46, 0.14);
+  --amber:     #9a6f1a;
+  --amber-dim: rgba(154, 111, 26, 0.14);
+
+  /* Score surface */
+  --score-bg:   #faf7f0;  /* floating paper card */
+  --score-line: #cdc3aa;  /* warm tan — staff lines, bar dividers */
+  --score-ink:  #2b2823;  /* dark brown — all glyphs */
+
+  /* Radii */
+  --radius-sm: 5px;
+  --radius:    9px;
+  --radius-lg: 13px;
+  --radius-xl: 18px;
+
+  /* Shadows — warm-tinted */
+  --shadow-sm: 0 1px 3px rgba(90, 75, 55, 0.18);
+  --shadow:    0 6px 24px rgba(90, 75, 55, 0.22);
+  --shadow-lg: 0 18px 48px rgba(90, 75, 55, 0.28);
+  --shadow-accent: 0 4px 18px rgba(192, 120, 56, 0.28);
+
+  /* Easing */
+  --ease-out:    cubic-bezier(0.22, 1, 0.36, 1);
+  --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+
+  /* Transitions */
+  --transition:      150ms var(--ease-out);
+  --transition-slow: 300ms var(--ease-out);
+
+  /* Layout */
+  --sidebar-width:      288px;
+  --mixer-width:        332px;
+  --control-bar-height: 78px;
+
+  /* Typography */
+  --font-sans: 'Hanken Grotesk', system-ui, -apple-system, sans-serif;
+  --font-serif: 'Instrument Serif', Georgia, 'Times New Roman', serif;
+  --font-mono: 'JetBrains Mono', 'SF Mono', ui-monospace, 'Cascadia Code',
+               'Roboto Mono', Menlo, Consolas, monospace;
+  font-family: var(--font-sans);
+  font-size: 14px;
+  line-height: 1.5;
+  font-feature-settings: 'cv01', 'cv03', 'cv04', 'cv11';
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  color: var(--text-primary);
+}
+
+/* ── Dark theme overrides ────────────────────────────────────────────────── */
+html.dark-theme {
+  /* Backgrounds — lighter = more foreground */
+  --bg-base:     #12110e;  /* main window / score viewport */
+  --bg-surface:  #1d1b17;  /* sidebar & mixer panels */
+  --bg-score:    #12110e;  /* score area */
+  --bg-elevated: #282520;  /* raised cards, inputs, buttons */
+  --bg-hover:    #332f29;  /* hover fills */
+
+  /* Borders */
+  --border:       rgba(236, 230, 216, 0.08);
+  --border-hover: rgba(236, 230, 216, 0.16);
+
+  /* Accent — warm amber/bronze on dark charcoal */
+  --accent:        #e09553;
+  --accent-bright: #f5a86a;
+  --accent-dim:    rgba(224, 149, 83, 0.12);
+  --accent-glow:   rgba(224, 149, 83, 0.24);
+
+  /* Text */
+  --text-primary:   #ece6d8;  /* off-white cream */
+  --text-secondary: #bab2a4;  /* muted grey-cream */
+  --text-muted:     #8a8174;
+
+  /* Status colours — adjusted for dark backgrounds */
+  --green:     #2ecc71;
+  --green-dim: rgba(46, 204, 113, 0.14);
+  --red:       #e74c3c;
+  --red-dim:   rgba(231, 76, 60, 0.14);
+  --amber:     #f1c40f;
+  --amber-dim: rgba(241, 196, 15, 0.14);
+
+  /* Score surface overrides */
+  --score-bg:   #1d1b17;  /* dark paper card */
+  --score-line: #423e35;  /* staff lines, bar dividers */
+  --score-ink:  #ece6d8;  /* all glyphs */
+
+  /* Shadows — dark-tinted */
+  --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.4);
+  --shadow:    0 6px 24px rgba(0, 0, 0, 0.5);
+  --shadow-lg: 0 18px 48px rgba(0, 0, 0, 0.6);
+  --shadow-accent: 0 4px 18px rgba(224, 149, 83, 0.18);
+}
+
+/* ── Reset ───────────────────────────────────────────────────────────────── */
+*, *::before, *::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html, body, #app {
+  width:    100%;
+  height:   100%;
+  overflow: hidden;
+  background: var(--bg-base);
+  user-select: text !important;
+  -webkit-user-select: text !important;
+}
+
+/* ── Scrollbars ──────────────────────────────────────────────────────────── */
+::-webkit-scrollbar       { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb {
+  background:    rgba(43, 40, 35, 0.14);
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover { background: rgba(192, 120, 56, 0.45); }
+
+/* ── Selection ───────────────────────────────────────────────────────────── */
+::selection {
+  background: var(--accent);
+  color: #fff;
+}
+
+/* ── Elements ────────────────────────────────────────────────────────────── */
+button {
+  border:      none;
+  background:  none;
+  cursor:      pointer;
+  color:       inherit;
+  font-family: inherit;
+  font-size:   inherit;
+}
+
+input, select, textarea {
+  font-family: inherit;
+  font-size:   inherit;
+  color:       inherit;
+  user-select: text !important;
+  -webkit-user-select: text !important;
+}
+
+/* ── Range input — base styling shared across all sliders ────────────────── */
+input[type='range'] {
+  -webkit-appearance: none;
+  appearance:  none;
+  background:  transparent;
+  cursor:      pointer;
+  height:      22px;
+}
+input[type='range']::-webkit-slider-runnable-track {
+  height:        4px;
+  background:    rgba(43, 40, 35, 0.12);
+  border-radius: 3px;
+}
+input[type='range']::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance:  none;
+  width:       14px;
+  height:      14px;
+  border-radius: 50%;
+  background:  #fff;
+  margin-top:  -5px;
+  box-shadow:  0 1px 4px rgba(43, 40, 35, 0.30), 0 0 8px var(--accent-glow);
+  transition:  transform 120ms var(--ease-spring), box-shadow var(--transition);
+}
+input[type='range']:hover::-webkit-slider-thumb {
+  transform:  scale(1.18);
+  box-shadow: 0 1px 4px rgba(43, 40, 35, 0.35), 0 0 14px var(--accent-glow);
+}
+input[type='range']:active::-webkit-slider-thumb {
+  transform: scale(1.05);
+}
+input[type='range']:disabled {
+  opacity: 0.3;
+  cursor:  not-allowed;
+}
+
+/* ── Glass utility ───────────────────────────────────────────────────────── */
+.glass {
+  background:              rgba(250, 247, 240, 0.72);
+  backdrop-filter:         blur(18px) saturate(1.2);
+  -webkit-backdrop-filter: blur(18px) saturate(1.2);
+  border:                  1px solid var(--border);
+}
+
+/* ── Truncate utility ────────────────────────────────────────────────────── */
+.truncate {
+  overflow:      hidden;
+  text-overflow: ellipsis;
+  white-space:   nowrap;
+}
+
+/* ── Numeric / mono readouts ─────────────────────────────────────────────── */
+.mono-nums {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.01em;
+}
+
+/* ── Interaction helpers ─────────────────────────────────────────────────── */
+.lift {
+  transition: transform var(--transition), box-shadow var(--transition),
+              background var(--transition), border-color var(--transition),
+              color var(--transition);
+}
+.lift:hover  { transform: translateY(-1px); }
+.lift:active { transform: translateY(0); }
+
+.press {
+  transition: transform 120ms var(--ease-spring);
+}
+.press:active { transform: scale(0.94); }
+
+/* ── Focus-visible ring ──────────────────────────────────────────────────── */
+:focus-visible {
+  outline:        2px solid var(--accent);
+  outline-offset: 2px;
+}
+:focus:not(:focus-visible) {
+  outline: none;
+}
+
+/* ── Subtle paper texture on #app ──────────────────────────────────────── */
+#app::before {
+  content:  '';
+  position: fixed;
+  inset:    0;
+  background-image:
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='200'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.018'/%3E%3C/svg%3E");
+  pointer-events: none;
+  z-index:        0;
+  opacity:        1;
+}
+
+/* Ensure app content sits above the texture */
+#app > * {
+  position: relative;
+  z-index:  1;
+}
+
+/* ── Animations ──────────────────────────────────────────────────────────── */
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+@keyframes fadeInUp {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes scaleIn {
+  from { opacity: 0; transform: scale(0.96); }
+  to   { opacity: 1; transform: scale(1); }
+}
+
+@keyframes shimmer {
+  from { transform: translateX(-150%); }
+  to   { transform: translateX(400%); }
+}
+
+@keyframes slideInRight {
+  from { transform: translateX(100%); opacity: 0.5; }
+  to   { transform: translateX(0);    opacity: 1; }
+}
+
+@keyframes pulse-glow {
+  0%, 100% { box-shadow: 0 4px 16px rgba(192, 120, 56, 0.30); }
+  50%      { box-shadow: 0 4px 28px rgba(192, 120, 56, 0.55); }
+}
+
+@keyframes float-y {
+  0%, 100% { transform: translateY(0); }
+  50%      { transform: translateY(-6px); }
+}
+
+@keyframes eq {
+  from { transform: scaleY(0.22); }
+  to   { transform: scaleY(1); }
+}
+
+/* ── Reduced motion ──────────────────────────────────────────────────────── */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
+  .lift:hover, .lift:active, .press:active { transform: none !important; }
+}

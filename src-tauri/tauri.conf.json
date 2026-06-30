@@ -1,0 +1,53 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+
+  "productName": "TabEngine",
+  "version":     "0.1.0",
+  "identifier":  "dev.tabengine.app",
+
+  "build": {
+    "frontendDist":      "../dist",
+    "devUrl":            "http://localhost:1420",
+    "beforeDevCommand":  "npm run dev",
+    "beforeBuildCommand":"npm run build"
+  },
+
+  "app": {
+    "windows": [
+      {
+        "label":      "main",
+        "title":      "TabEngine",
+        "width":      1440,
+        "height":     900,
+        "minWidth":   960,
+        "minHeight":  600,
+        "center":     true,
+        "resizable":  true,
+        "decorations": false,
+        "shadow":     true
+      }
+    ],
+
+    "security": {
+      "csp": "default-src 'self' tauri: asset: https://ipc.localhost; worker-src 'self' blob:; script-src 'self' 'unsafe-eval' blob:; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; media-src 'self' blob: data:; img-src 'self' data: blob:; connect-src 'self' ipc: http://ipc.localhost tauri: asset: https://ipc.localhost https://www.songsterr.com https://gp.songsterr.com https://d12drcwhcokzqv.cloudfront.net; font-src 'self' data: https://fonts.gstatic.com"
+    }
+  },
+
+  "bundle": {
+    "active":  true,
+    "targets": "all",
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ]
+  },
+
+  "plugins": {
+    "shell": {
+      "open": true
+    }
+  }
+}
