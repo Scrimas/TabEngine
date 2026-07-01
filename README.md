@@ -1,4 +1,6 @@
-<img src=".github/logo.png" alt="TabEngine" width="280">
+<p align="center">
+  <img src=".github/logo.png" alt="TabEngine" width="50%">
+</p>
 
 A desktop guitar tab player. Drop in a Guitar Pro file (GP3, GP4, GP5, GPX) and you're playing — no account, no ads, no install-a-launcher, no "upgrade to premium" wall.
 
