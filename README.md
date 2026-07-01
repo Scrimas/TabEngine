@@ -59,3 +59,8 @@ Tauri keeps the app small — no Electron/Chromium bundled in, just your OS's na
 ## License
 
 [GPLv3](LICENSE) — free forever, and any derivative work has to stay free too.
+
+<p align="center">
+  <a href="https://www.codefactor.io/repository/github/scrimas/tabengine"><img src="https://www.codefactor.io/repository/github/scrimas/tabengine/badge" alt="CodeFactor"></a>
+  <a href="https://deepwiki.com/Scrimas/TabEngine"><img src="https://deepwiki.com/badge.svg" alt="Ask DeepWiki"></a>
+</p>
