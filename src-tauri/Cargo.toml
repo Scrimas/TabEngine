@@ -12,6 +12,12 @@ rust-version = "1.77"
 name       = "tabengine_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
+# Binary name is capitalized to match `productName` in tauri.conf.json, so the
+# built binary and desktop entry stay consistent with the app's branding.
+[[bin]]
+name = "TabEngine"
+path = "src/main.rs"
+
 # ── build ─────────────────────────────────────────────────────────────────────
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
