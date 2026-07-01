@@ -233,7 +233,7 @@
     gap: 6px;
     padding: 10px;
     scrollbar-width: thin;
-    scrollbar-color: rgba(43,40,35,0.12) transparent;
+    scrollbar-color: var(--scrollbar-thumb) transparent;
   }
 
   .empty-state {

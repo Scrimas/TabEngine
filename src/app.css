@@ -17,10 +17,13 @@
   --border-hover: rgba(43, 40, 35, 0.22);
 
   /* Accent — warm amber ink on parchment */
-  --accent:        #c07838;
-  --accent-bright: #d4944a;
-  --accent-dim:    rgba(192, 120, 56, 0.16);
-  --accent-glow:   rgba(192, 120, 56, 0.30);
+  --accent:        #D98A52;
+  --accent-bright: #e3a274;
+  --accent-dim:    rgba(217, 138, 82, 0.16);
+  --accent-glow:   rgba(217, 138, 82, 0.30);
+
+  /* Logo ink — neutral tone inside/behind the pick mark, swaps with theme */
+  --logo-ink: #FBF8F0;
 
   /* Text */
   --text-primary:   #2b2823;  /* dark-brown ink */
@@ -60,6 +63,13 @@
   --transition:      150ms var(--ease-out);
   --transition-slow: 300ms var(--ease-out);
 
+  /* Glass, Overlay and Scrollbar variables */
+  --bg-glass:        rgba(250, 247, 240, 0.72);
+  --bg-modal:        rgba(250, 247, 240, 0.90);
+  --bg-pane:         rgba(246, 241, 231, 0.4);
+  --bg-overlay:      rgba(246, 241, 231, 0.85);
+  --scrollbar-thumb: rgba(43, 40, 35, 0.14);
+
   /* Layout */
   --sidebar-width:      288px;
   --mixer-width:        332px;
@@ -68,6 +78,7 @@
   /* Typography */
   --font-sans: 'Hanken Grotesk', system-ui, -apple-system, sans-serif;
   --font-serif: 'Instrument Serif', Georgia, 'Times New Roman', serif;
+  --font-logo: 'Cormorant Garamond', Georgia, 'Times New Roman', serif;
   --font-mono: 'JetBrains Mono', 'SF Mono', ui-monospace, 'Cascadia Code',
                'Roboto Mono', Menlo, Consolas, monospace;
   font-family: var(--font-sans);
@@ -93,10 +104,13 @@ html.dark-theme {
   --border-hover: rgba(236, 230, 216, 0.16);
 
   /* Accent — warm amber/bronze on dark charcoal */
-  --accent:        #e09553;
-  --accent-bright: #f5a86a;
-  --accent-dim:    rgba(224, 149, 83, 0.12);
-  --accent-glow:   rgba(224, 149, 83, 0.24);
+  --accent:        #D98A52;
+  --accent-bright: #e3a274;
+  --accent-dim:    rgba(217, 138, 82, 0.12);
+  --accent-glow:   rgba(217, 138, 82, 0.24);
+
+  /* Logo ink — neutral tone inside/behind the pick mark, swaps with theme */
+  --logo-ink: #1B1917;
 
   /* Text */
   --text-primary:   #ece6d8;  /* off-white cream */
@@ -121,6 +135,13 @@ html.dark-theme {
   --shadow:    0 6px 24px rgba(0, 0, 0, 0.5);
   --shadow-lg: 0 18px 48px rgba(0, 0, 0, 0.6);
   --shadow-accent: 0 4px 18px rgba(224, 149, 83, 0.18);
+
+  /* Glass, Overlay and Scrollbar variables */
+  --bg-glass:        rgba(40, 37, 32, 0.72);
+  --bg-modal:        rgba(40, 37, 32, 0.90);
+  --bg-pane:         rgba(18, 17, 14, 0.4);
+  --bg-overlay:      rgba(18, 17, 14, 0.85);
+  --scrollbar-thumb: rgba(236, 230, 216, 0.14);
 }
 
 /* ── Reset ───────────────────────────────────────────────────────────────── */
@@ -143,7 +164,7 @@ html, body, #app {
 ::-webkit-scrollbar       { width: 6px; height: 6px; }
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb {
-  background:    rgba(43, 40, 35, 0.14);
+  background:    var(--scrollbar-thumb);
   border-radius: 3px;
 }
 ::-webkit-scrollbar-thumb:hover { background: rgba(192, 120, 56, 0.45); }
@@ -182,7 +203,7 @@ input[type='range'] {
 }
 input[type='range']::-webkit-slider-runnable-track {
   height:        4px;
-  background:    rgba(43, 40, 35, 0.12);
+  background:    var(--border);
   border-radius: 3px;
 }
 input[type='range']::-webkit-slider-thumb {
@@ -210,7 +231,7 @@ input[type='range']:disabled {
 
 /* ── Glass utility ───────────────────────────────────────────────────────── */
 .glass {
-  background:              rgba(250, 247, 240, 0.72);
+  background:              var(--bg-glass);
   backdrop-filter:         blur(18px) saturate(1.2);
   -webkit-backdrop-filter: blur(18px) saturate(1.2);
   border:                  1px solid var(--border);

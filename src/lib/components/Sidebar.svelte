@@ -459,7 +459,7 @@
     flex-direction: column;
     gap: 4px;
     scrollbar-width: thin;
-    scrollbar-color: rgba(43,40,35,0.10) transparent;
+    scrollbar-color: var(--scrollbar-thumb) transparent;
   }
 
   .empty-msg {

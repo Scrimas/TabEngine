@@ -16,14 +16,24 @@
 
 <header class="titlebar">
   <div class="titlebar-left" data-tauri-drag-region>
-    <!-- Logo: three stave lines -->
+    <!-- Logo: pick mark with tab-staff lines -->
     <div class="logo-icon" aria-hidden="true">
-      <div class="stave-line"></div>
-      <div class="stave-line short"></div>
-      <div class="stave-line"></div>
+      <svg width="100%" height="100%" viewBox="0 0 123 100">
+        <defs>
+          <clipPath id="titlebar-pick-clip">
+            <path d="M122.66,54.07 C121.77,56.36 120.1,58.29 116.91,60.69 C115.84,61.5 113.85,63.06 112.5,64.16 C111.14,65.26 108.59,67.18 106.85,68.42 C102.95,71.19 91.67,78.2 89.44,79.24 C88.54,79.66 87.26,80.36 86.59,80.8 C83.53,82.8 68.51,89.78 63.86,91.36 C63.3,91.55 62.71,91.8 62.56,91.91 C61.41,92.77 53.56,95.43 45.67,97.65 C38.82,99.58 31.52,100 26.47,98.76 C20.94,97.41 16.46,95.03 12.31,91.22 C8.97,88.16 6.57,84.66 4.85,80.33 C3.55,77.08 1.75,70.05 0.87,64.79 C0.05,59.86 0.03,59.6 0.02,51.39 C0,42.66 0.07,41.82 1.33,35.01 C2.12,30.75 3.11,27.1 4.69,22.57 C6.75,16.65 8.9,13.22 12.81,9.63 C20,3.03 29.6,0 38.93,1.39 C43.89,2.14 53.73,5.32 64.21,9.58 C76.64,14.63 89.85,21.67 99.75,28.53 C101.38,29.66 103.19,30.9 103.77,31.29 C108.11,34.15 117.42,41.64 119.87,44.22 C122.22,46.71 122.95,48.21 123.06,50.78 C123.12,52.32 123.02,53.13 122.66,54.07 Z"></path>
+          </clipPath>
+        </defs>
+        <path d="M122.66,54.07 C121.77,56.36 120.1,58.29 116.91,60.69 C115.84,61.5 113.85,63.06 112.5,64.16 C111.14,65.26 108.59,67.18 106.85,68.42 C102.95,71.19 91.67,78.2 89.44,79.24 C88.54,79.66 87.26,80.36 86.59,80.8 C83.53,82.8 68.51,89.78 63.86,91.36 C63.3,91.55 62.71,91.8 62.56,91.91 C61.41,92.77 53.56,95.43 45.67,97.65 C38.82,99.58 31.52,100 26.47,98.76 C20.94,97.41 16.46,95.03 12.31,91.22 C8.97,88.16 6.57,84.66 4.85,80.33 C3.55,77.08 1.75,70.05 0.87,64.79 C0.05,59.86 0.03,59.6 0.02,51.39 C0,42.66 0.07,41.82 1.33,35.01 C2.12,30.75 3.11,27.1 4.69,22.57 C6.75,16.65 8.9,13.22 12.81,9.63 C20,3.03 29.6,0 38.93,1.39 C43.89,2.14 53.73,5.32 64.21,9.58 C76.64,14.63 89.85,21.67 99.75,28.53 C101.38,29.66 103.19,30.9 103.77,31.29 C108.11,34.15 117.42,41.64 119.87,44.22 C122.22,46.71 122.95,48.21 123.06,50.78 C123.12,52.32 123.02,53.13 122.66,54.07 Z" fill="var(--logo-ink)"></path>
+        <g clip-path="url(#titlebar-pick-clip)">
+          <rect x="-15" y="10.25" width="160" height="7.5" fill="var(--accent)"></rect>
+          <rect x="-15" y="34.25" width="160" height="7.5" fill="var(--accent)"></rect>
+          <rect x="-15" y="58.25" width="160" height="7.5" fill="var(--accent)"></rect>
+          <rect x="-15" y="82.25" width="160" height="7.5" fill="var(--accent)"></rect>
+        </g>
+      </svg>
     </div>
-    <span class="app-name">TabEngine</span>
-    <span class="studio-badge">STUDIO</span>
+    <span class="app-name"><span class="app-name-tab">Tab</span><span class="app-name-engine">Engine</span></span>
 
     <div class="tb-sep" aria-hidden="true"></div>
 
@@ -147,47 +157,30 @@
   }
 
   .logo-icon {
-    width: 27px;
-    height: 27px;
-    border-radius: 8px;
-    background: rgba(45, 212, 191, 0.14);
-    border: 1px solid rgba(45, 212, 191, 0.32);
-    display: flex;
-    flex-direction: column;
-    justify-content: center;
-    gap: 3.5px;
-    padding: 0 6px;
+    width: 24px;
+    height: 24px;
+    border-radius: 6px;
+    background: var(--accent);
     flex-shrink: 0;
     margin-right: 5px;
-  }
-
-  .stave-line {
-    height: 1.6px;
-    border-radius: 2px;
-    background: #c07838;
-  }
-  .stave-line.short {
-    width: 66%;
-    opacity: 0.55;
+    padding: 3px;
+    box-sizing: border-box;
   }
 
   .app-name {
-    font-weight: 700;
-    font-size: 14.5px;
-    letter-spacing: 0.2px;
+    font-family: var(--font-logo);
+    font-size: 19px;
+    letter-spacing: 0.01em;
     color: var(--text-primary);
     margin-right: 4px;
   }
 
-  .studio-badge {
-    font-family: var(--font-mono);
-    font-size: 9.5px;
-    letter-spacing: 0.5px;
-    color: var(--text-muted);
-    border: 1px solid var(--border);
-    border-radius: 5px;
-    padding: 2px 5px;
-    margin-right: 4px;
+  .app-name-tab {
+    font-weight: 500;
+  }
+
+  .app-name-engine {
+    font-weight: 700;
   }
 
   .titlebar-right {
