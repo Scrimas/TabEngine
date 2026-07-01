@@ -34,7 +34,21 @@ TabEngine is free, and it's staying that way — no paywalled updates, no premiu
 
 Found a bug or something feels broken? Open an issue. Want to fix it yourself? PRs are very welcome.
 
-## Running it
+## Installation notes
+
+Prebuilt binaries (Windows, macOS, Linux) are attached to each [release](../../releases). They're built by GitHub Actions and are **unsigned** — I don't pay for a Windows code-signing certificate or an Apple developer account ($99/year), so your OS will flag the app as coming from an unverified developer. This is expected; here's how to get past it:
+
+- **Windows (`.exe`)** — SmartScreen will show "Windows protected your PC." Click **More info** → **Run anyway**.
+- **macOS (`.dmg`)** — Gatekeeper will block the app as from an unidentified developer. Right-click the app in Applications and choose **Open**, or clear the quarantine flag manually:
+  ```bash
+  xattr -cr /Applications/TabEngine.app
+  ```
+- **Linux (`.AppImage`)** — no signing required. Just mark it executable and run it:
+  ```bash
+  chmod +x TabEngine.AppImage
+  ```
+
+## Building from source
 
 ```bash
 npm install        # installs deps, also copies alphaTab's runtime assets into public/
