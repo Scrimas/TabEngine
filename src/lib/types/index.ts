@@ -62,6 +62,7 @@ export interface TrackState {
   pan:       number;   // -1.0 to 1.0
   muted:     boolean;
   soloed:    boolean;
+  tuning:    number[]; // MIDI note numbers, top string (highest pitch) first; empty if not stringed
 }
 
 // ── Library ───────────────────────────────────────────────────────────────────

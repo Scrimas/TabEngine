@@ -10,6 +10,7 @@
     findBarIndexAtCanvasPos,
     getBarStartTick,
     getBarEndTick,
+    getTuningAnchor,
     resize,
   } from '$lib/alphatab/AlphaTabManager';
   import { playerStore } from '$lib/stores/player';
@@ -17,6 +18,8 @@
   import { get } from 'svelte/store';
   import LoadingOverlay from './LoadingOverlay.svelte';
   import { invoke } from '@tauri-apps/api/core';
+  import { getCurrentWebview } from '@tauri-apps/api/webview';
+  import type { UnlistenFn } from '@tauri-apps/api/event';
   import { importFileToLibrary, recordOpen } from '$lib/stores/library';
   import type { LibraryEntry } from '$lib/types';
 
@@ -32,6 +35,21 @@
   function selectTrack(index: number | null) {
     selectedTrackIndex = index;
     setVisibleTracks(index === null ? [] : [index]);
+    tick().then(refreshTuningLabels);
+  }
+
+  // ── Tuning labels (per-string, at the start of the track) ───────────────────
+  interface TuningLabel { x: number; y: number; note: string; }
+  let tuningLabels: TuningLabel[] = [];
+
+  function refreshTuningLabels() {
+    if (selectedTrackIndex === null || !atMainEl) { tuningLabels = []; return; }
+    const anchor = getTuningAnchor(selectedTrackIndex);
+    if (!anchor) { tuningLabels = []; return; }
+    tuningLabels = anchor.lineYs.map((lineY, i) => {
+      const vp = canvasToViewport(anchor.x, lineY);
+      return { x: vp.x, y: vp.y, note: anchor.notes[i] };
+    });
   }
 
   // ── Loop resize handles ──────────────────────────────────────────────────────
@@ -40,12 +58,20 @@
   let startHandle: HandlePos | null = null;
   let endHandle:   HandlePos | null = null;
 
-  // Convert alphaTab canvas coordinates → viewport-element-relative px
+  // Convert alphaTab canvas coordinates → viewport-element-relative px.
+  // Adds back viewportEl's current scroll offset so the result is the position
+  // within the *unscrolled* content box — the overlay elements are normal
+  // (scrolling) children of .at-viewport, so the browser's native scroll already
+  // moves them; re-deriving from live (scrolled) bounding rects without this
+  // would double-count the scroll offset and drift at 2x speed.
   function canvasToViewport(cx: number, cy: number): { x: number; y: number } {
     if (!viewportEl || !atMainEl) return { x: cx, y: cy };
     const vr = viewportEl.getBoundingClientRect();
     const mr = atMainEl.getBoundingClientRect();
-    return { x: cx + (mr.left - vr.left), y: cy + (mr.top - vr.top) };
+    return {
+      x: cx + (mr.left - vr.left) + viewportEl.scrollLeft,
+      y: cy + (mr.top - vr.top) + viewportEl.scrollTop,
+    };
   }
 
   // Convert mouse client position → canvas coordinates
@@ -147,6 +173,12 @@
     initAlphaTab(containerEl);
     atMainEl = containerEl.querySelector<HTMLElement>('.at-main');
 
+    // Auto-select the first real track (rather than leaving "All" highlighted)
+    // since a fresh load already renders a single track by default.
+    containerEl.addEventListener('tabengine:scoreLoaded', () => {
+      if (get(tracksStore).length > 0) selectTrack(0);
+    });
+
     containerEl.addEventListener('tabengine:renderFinished', () => {
       scoreReady = true;
       atMainEl = containerEl.querySelector<HTMLElement>('.at-main');
@@ -157,7 +189,9 @@
         textElements.forEach((el: any) => {
           const txt = el.textContent || '';
           const clean = txt.replace(/[^a-zA-Z\~\u007E]/g, '');
-          if (clean.length > 0 && /^[vVwW\~\u007E]+$/.test(clean)) {
+          const isVibrato = clean.length > 0 && /^[vVwW\~\u007E]+$/.test(clean);
+          const isWatermark = txt.trim().toLowerCase() === 'rendered by alphatab';
+          if (isVibrato || isWatermark) {
             el.style.display = 'none';
             if (el.parentNode && el.parentNode.tagName === 'text') {
               (el.parentNode as HTMLElement).style.display = 'none';
@@ -172,13 +206,12 @@
       if (atMainEl) observer.observe(atMainEl, { childList: true, subtree: true });
 
       refreshHandles();
+      refreshTuningLabels();
     });
 
     containerEl.addEventListener('tabengine:scoreLoadFailed', () => {
       scoreReady = true; // dismiss the overlay so the UI isn't stuck
     });
-
-    viewportEl.addEventListener('scroll', refreshHandles);
 
     // Dynamic resize debouncer to prevent layout transitions from stuttering the canvas render
     resizeObserver = new ResizeObserver(() => {
@@ -187,16 +220,29 @@
         if (scoreReady) {
           resize();
           refreshHandles();
+          refreshTuningLabels();
         }
       }, 150);
     });
     resizeObserver.observe(containerEl);
+
+    getCurrentWebview().onDragDropEvent((event) => {
+      if (event.payload.type === 'over') {
+        isDragOver = true;
+      } else if (event.payload.type === 'drop') {
+        isDragOver = false;
+        const path = event.payload.paths[0];
+        if (path) handleDroppedPath(path);
+      } else {
+        isDragOver = false;
+      }
+    }).then(fn => { unlistenDragDrop = fn; });
   });
 
   onDestroy(() => {
-    viewportEl?.removeEventListener('scroll', refreshHandles);
     resizeObserver?.disconnect();
     if (resizeTimer) clearTimeout(resizeTimer);
+    unlistenDragDrop?.();
     destroyAlphaTab();
   });
 
@@ -215,36 +261,25 @@
   }
 
   // ── Drag-and-drop ────────────────────────────────────────────────────────────
-  function onDragOver(e: DragEvent) { e.preventDefault(); isDragOver = true; }
-  function onDragLeave() { isDragOver = false; }
+  // Tauri's native OS-level drag-drop (enabled by default) intercepts file
+  // drops before they ever reach the webview's HTML5 dragover/drop DOM events,
+  // so those never fire here. Use the native event instead.
+  let unlistenDragDrop: UnlistenFn | null = null;
 
-  async function onDrop(e: DragEvent) {
-    e.preventDefault();
-    isDragOver = false;
-    const file = e.dataTransfer?.files?.[0];
-    if (!file) return;
-    const ext = file.name.split('.').pop()?.toLowerCase() ?? '';
+  async function handleDroppedPath(path: string) {
+    const ext = path.split('.').pop()?.toLowerCase() ?? '';
     if (!['gp', 'gp3', 'gp4', 'gp5', 'gpx'].includes(ext)) return;
     scoreReady = false;
-    const filePath: string = (file as unknown as { path: string }).path ?? '';
-    if (filePath) {
-      const importedPath = await importFileToLibrary(filePath);
-      const meta: LibraryEntry = await invoke('file_metadata', { path: importedPath });
-      recordOpen(meta);
-      await loadFile(importedPath);
-    } else {
-      const buf = await file.arrayBuffer();
-      loadFromBytes(new Uint8Array(buf));
-    }
+    const importedPath = await importFileToLibrary(path);
+    const meta: LibraryEntry = await invoke('file_metadata', { path: importedPath });
+    recordOpen(meta);
+    await loadFile(importedPath);
   }
 </script>
 
 <main
   class="score-viewer"
   class:drag-over={isDragOver}
-  on:dragover={onDragOver}
-  on:dragleave={onDragLeave}
-  on:drop={onDrop}
   bind:this={containerEl}
   role="region"
   aria-label="Score viewer"
@@ -268,7 +303,7 @@
           title={track.name}
         >
           <span class="tab-dot" style="background:{track.color};{selectedTrackIndex !== track.index ? 'opacity:.4' : ''}"></span>
-          {track.shortName}
+          {track.name}
         </button>
       {/each}
     </div>
@@ -361,9 +396,19 @@
       </div>
     {/if}
 
+    <!-- Per-string tuning labels at the start of the selected track -->
+    {#each tuningLabels as label}
+      <span
+        class="tuning-label"
+        style="left:{label.x - 20}px; top:{label.y}px;"
+        aria-hidden="true"
+      >{label.note}</span>
+    {/each}
 
-
-    <div class="score-card">
+    <div
+      class="score-card"
+      on:animationend={() => { refreshHandles(); refreshTuningLabels(); }}
+    >
       <div class="at-main"></div>
     </div>
   </div>
@@ -445,8 +490,8 @@
     position: relative;
     background: var(--bg-score);
     scrollbar-width: thin;
-    scrollbar-color: rgba(43,40,35,0.14) transparent;
-    padding: 30px 30px 44px;
+    scrollbar-color: var(--scrollbar-thumb) transparent;
+    padding: 30px;
   }
 
   .score-card {
@@ -457,11 +502,12 @@
     border-radius: 16px;
     padding: 10px;
     box-shadow: 0 14px 50px rgba(90,75,55,0.15);
-    min-height: 200px;
+    min-height: 100%;
   }
 
   .at-viewport.ready .score-card {
     animation: fadeInUp 0.45s var(--ease-out);
+    padding: 40px 40px 10px;
   }
 
   /* ── Loop resize handles ─────────────────────────────────────────────────── */
@@ -498,6 +544,20 @@
     box-shadow: 0 4px 14px rgba(192,120,56,0.55);
   }
 
+  /* ── Tuning labels ───────────────────────────────────────────────────────── */
+  .tuning-label {
+    position: absolute;
+    width: 20px;
+    transform: translateY(-50%);
+    text-align: center;
+    font-family: var(--font-mono);
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--text-secondary);
+    pointer-events: none;
+    z-index: 15;
+  }
+
   /* ── Drop hint ───────────────────────────────────────────────────────────── */
   .drop-hint {
     position: absolute;
@@ -515,7 +575,14 @@
   .drop-hint.active { opacity: 1; transform: scale(1.02); }
 
   .drop-icon {
-    filter: drop-shadow(0 0 16px rgba(192,120,56,0.35));
+    width: 52px;
+    height: 52px;
+    border-radius: 14px;
+    /* box-shadow instead of filter: drop-shadow — WebKitGTK (Tauri's Linux
+       webview) rasterizes drop-shadow on a container from its sharp-cornered
+       bounding box rather than the rounded SVG content, leaving a faint
+       square ghost around the rounded card. box-shadow has no such issue. */
+    box-shadow: 0 0 16px rgba(192,120,56,0.35);
     animation: float-y 3.5s var(--ease-out) infinite;
   }
 

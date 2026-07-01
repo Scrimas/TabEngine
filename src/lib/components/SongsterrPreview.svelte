@@ -7,7 +7,7 @@
 
   export let song: SongsterrSong;
 
-  const dispatch = createEventDispatcher<{ load: Uint8Array; close: void }>();
+  const dispatch = createEventDispatcher<{ load: { song: SongsterrSong; bytes: Uint8Array }; close: void }>();
 
   const CATEGORY_COLORS: Record<string, string> = {
     guitar: '#6366f1',
@@ -25,7 +25,9 @@
   async function handleLoad() {
     try {
       const bytes = await fetchTabBytes(song.id);
-      dispatch('load', bytes);
+      // Capture `song` from this closure rather than re-reading the store later —
+      // the user may have selected a different song while this fetch was in flight.
+      dispatch('load', { song, bytes });
     } catch {
       // Error is already stored in songsterrStore
     }
@@ -210,7 +212,7 @@
     overflow-y: auto;
     padding: 16px;
     scrollbar-width: thin;
-    scrollbar-color: rgba(43,40,35,0.14) transparent;
+    scrollbar-color: var(--scrollbar-thumb) transparent;
   }
 
   /* ── Meta chips ─────────────────────────────────────────────────────────── */

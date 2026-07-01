@@ -38,7 +38,13 @@ export function recordOpen(entry: LibraryEntry): void {
     const filtered = state.entries.filter(e => e.path !== entry.path);
     const entries = [updated, ...filtered].slice(0, MAX_RECENT);
     saveRecent(entries);
-    return { ...state, entries, currentPath: entry.path };
+    return {
+      ...state,
+      entries,
+      currentPath: entry.path,
+      currentSongsterrSong: null,
+      currentSongsterrBytes: null,
+    };
   });
 }
 

@@ -28,7 +28,7 @@
 import * as alphaTab from '@coderline/alphatab';
 import { updatePlayer, resetPlayer } from '$lib/stores/player';
 import { setTracks } from '$lib/stores/tracks';
-import { TRACK_COLORS } from '$lib/types';
+import { TRACK_COLORS, formatTuning } from '$lib/types';
 import type { TrackState } from '$lib/types';
 import { get } from 'svelte/store';
 import { playerStore } from '$lib/stores/player';
@@ -132,6 +132,14 @@ export function initAlphaTab(container: HTMLElement): void {
   api.settings.notation.elements.set(ne.EffectSlightBeatVibrato, false);
   api.settings.notation.elements.set(ne.EffectWideNoteVibrato, false);
 
+  // Disable alphaTab's built-in tuning header block — replaced by the
+  // per-string tuning-label overlay drawn next to the actual staff lines.
+  api.settings.notation.elements.set(ne.GuitarTuning, false);
+
+  // Disable the vertical track-name label in the accolade (redundant with the
+  // track pills toolbar above the score).
+  api.settings.notation.elements.set(ne.TrackNames, false);
+
   // ── Event wiring ───────────────────────────────────────────────────────────
 
   // 1. SoundFont load progress
@@ -180,10 +188,13 @@ export function initAlphaTab(container: HTMLElement): void {
       pan:       0,
       muted:     false,
       soloed:    false,
+      tuning:    track.staves[0]?.isStringed ? [...track.staves[0].tuning] : [],
     }));
     setTracks(tracks);
+    container.dispatchEvent(new CustomEvent('tabengine:scoreLoaded'));
 
     hideRestGlyphsInEmptyBars(score);
+    dedupeSectionMarkerText(score);
   });
 
   // 6. Render finished — notify the ScoreViewer (flips the loading overlay off).
@@ -413,6 +424,22 @@ function hideRestGlyphsInEmptyBars(score: alphaTab.model.Score): void {
   }
 }
 
+/**
+ * Some Guitar Pro files author section markers with the same string in both
+ * the short marker id and the long description (e.g. marker="Intro Solo",
+ * text="Intro Solo"). alphaTab renders both — `[marker] text` — so identical
+ * values print as visually duplicated text ("[Intro Solo] Intro Solo"). Clear
+ * the redundant description in that case, keeping just the bracketed marker.
+ */
+function dedupeSectionMarkerText(score: alphaTab.model.Score): void {
+  for (const masterBar of score.masterBars) {
+    const section = masterBar.section;
+    if (section && section.marker.trim() && section.marker.trim() === section.text.trim()) {
+      section.text = '';
+    }
+  }
+}
+
 /** Returns the index of the bar the current playback position is in. */
 function currentBarIndex(): number {
   const tick  = get(playerStore).currentTick;
@@ -609,6 +636,31 @@ export function getBarEndTick(barIndex: number): number {
 /** Expose the raw API for advanced use-cases. */
 export function getApi(): alphaTab.AlphaTabApi | null { return api; }
 
+// ── Tuning label anchors ──────────────────────────────────────────────────────
+
+/**
+ * Anchor + note letters for the tuning overlay of one track, or null if
+ * unavailable. Only meaningful when `trackIndex` is the sole track currently
+ * rendered (single-track view) — `lineAlignedBounds` of the first master bar
+ * is then exactly the tab staff's line span, which we can evenly divide into
+ * one y-position per string.
+ */
+export function getTuningAnchor(trackIndex: number): { x: number; lineYs: number[]; notes: string[] } | null {
+  const tuning = api?.score?.tracks[trackIndex]?.staves[0]?.tuning;
+  if (!api?.boundsLookup || !tuning || tuning.length === 0) return null;
+
+  const mb = api.boundsLookup.findMasterBarByIndex(0);
+  if (!mb) return null;
+  const bounds = mb.lineAlignedBounds;
+
+  const stringCount = tuning.length;
+  const lineYs = Array.from({ length: stringCount }, (_, i) =>
+    bounds.y + (bounds.h * i) / (stringCount - 1),
+  );
+
+  return { x: bounds.x, lineYs, notes: formatTuning(tuning).split(' ') };
+}
+
 // ── Songsterr rhythm styling monkey-patch ─────────────────────────────────────
 
 function applySongsterrRhythmStyle(): void {
@@ -618,7 +670,16 @@ function applySongsterrRhythmStyle(): void {
   const originalCreate = tabFactory.create;
   tabFactory.create = function(renderer: any, bar: any) {
     const instance = originalCreate.call(this, renderer, bar) as any;
-    
+
+    // Drop the big vertical "TAB" clef glyph alphaTab draws at the start of
+    // every line — redundant with the track pills toolbar, and repeats on
+    // every system rather than just once.
+    const originalAddPreBeatGlyph = instance.addPreBeatGlyph;
+    instance.addPreBeatGlyph = function(glyph: any) {
+      if (glyph?.constructor?.name === 'TabClefGlyph') return;
+      originalAddPreBeatGlyph.call(this, glyph);
+    };
+
     // 1. Override flag top and bottom Y calculation so stems/beams are always flat
     // and drawn relative to the rhythm baseline, rather than sloping or overlapping notes.
     instance.getFlagTopY = function(beat: any, direction: any) {

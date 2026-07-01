@@ -59,9 +59,9 @@
     selectSong(song);
   }
 
-  function handleLoad(e: CustomEvent<Uint8Array>) {
-    loadFromBytes(e.detail);
-    setCurrentSongsterr($songsterrStore.selected, e.detail);
+  function handleLoad(e: CustomEvent<{ song: SongsterrSong; bytes: Uint8Array }>) {
+    loadFromBytes(e.detail.bytes);
+    setCurrentSongsterr(e.detail.song, e.detail.bytes);
     dispatch('close');
     resetSongsterr();
   }
@@ -151,7 +151,7 @@
           {:else if !$songsterrStore.query.trim()}
             <div class="state-message empty-state">
               <svg width="44" height="44" viewBox="0 0 44 44" fill="none">
-                <rect width="44" height="44" rx="12" fill="rgba(43,40,35,0.04)" stroke="rgba(43,40,35,0.12)" stroke-width="1"/>
+                <rect width="44" height="44" rx="12" fill="var(--text-primary)" fill-opacity="0.04" stroke="var(--text-primary)" stroke-opacity="0.12" stroke-width="1"/>
                 <path d="M15 22C15 18.7 17.7 16 21 16H23C26.3 16 29 18.7 29 22V28H15V22Z" stroke="var(--accent)" stroke-width="1.4" fill="none" opacity="0.6"/>
                 <line x1="18" y1="22" x2="18" y2="28" stroke="var(--accent)" stroke-width="1" opacity="0.4"/>
                 <line x1="22" y1="20" x2="22" y2="28" stroke="var(--accent)" stroke-width="1" opacity="0.4"/>
@@ -262,7 +262,7 @@
     max-width: 90vw;
     max-height: 85vh;
     display: flex;
-    background: rgba(250, 247, 240, 0.90);
+    background: var(--bg-modal);
     backdrop-filter: blur(28px) saturate(1.3);
     -webkit-backdrop-filter: blur(28px) saturate(1.3);
     border: 1px solid var(--border);
@@ -278,7 +278,7 @@
     border-right: 1px solid var(--border);
     display: flex;
     flex-direction: column;
-    background: rgba(246, 241, 231, 0.4);
+    background: var(--bg-pane);
   }
 
   .preview-pane {
@@ -388,7 +388,7 @@
     overflow-y: auto;
     padding: 10px;
     scrollbar-width: thin;
-    scrollbar-color: rgba(43,40,35,0.14) transparent;
+    scrollbar-color: var(--scrollbar-thumb) transparent;
   }
 
   .results-list {
