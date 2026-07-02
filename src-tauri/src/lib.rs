@@ -10,12 +10,19 @@ mod songsterr;
 // use tauri::Manager;
 
 pub fn run() {
-    // WebKitGTK's DMA-BUF accelerated compositing path fails to create an EGL
-    // display on several Linux GPU/compositor combos (Intel Xe + Wayland,
-    // NVIDIA + Wayland), aborting the process before any window opens. Users
-    // can still override this by exporting the var themselves.
+    // WebKitGTK's DMA-BUF accelerated compositing path can fail to create an
+    // EGL display when the AppImage's bundled (Ubuntu 22.04-era) Wayland libs
+    // shadow the host's, aborting the process before any window opens (#2).
+    // The release workflow strips those libs as the primary fix; this env var
+    // is kept as defense-in-depth — but ONLY inside AppImage runs, because on
+    // modern WebKitGTK/Wayland disabling the DMA-BUF renderer forces software
+    // rendering of the whole webview (~10 fps UI, high CPU). AppRun exports
+    // APPIMAGE, so its presence identifies that environment. Users can still
+    // override by exporting the var themselves.
     #[cfg(target_os = "linux")]
-    if std::env::var_os("WEBKIT_DISABLE_DMABUF_RENDERER").is_none() {
+    if std::env::var_os("APPIMAGE").is_some()
+        && std::env::var_os("WEBKIT_DISABLE_DMABUF_RENDERER").is_none()
+    {
         // SAFETY: single-threaded at this point, before any webview/GTK init.
         unsafe {
             std::env::set_var("WEBKIT_DISABLE_DMABUF_RENDERER", "1");
