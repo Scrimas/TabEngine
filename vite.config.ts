@@ -6,7 +6,11 @@ function alphatabVibratoPatch() {
   return {
     name: 'alphatab-vibrato-patch',
     transform(code: string, id: string) {
-      if (id.includes('alphaTab.js')) {
+      // Since alphaTab 1.8 the ESM code lives in alphaTab.core.mjs (the
+      // package entry alphaTab.mjs only re-exports it). scripts/setup-assets.cjs
+      // applies the same patch to the worker copies in public/assets/, which
+      // bypass Vite transforms.
+      if (id.includes('alphaTab.core.mjs') || id.includes('alphaTab.js')) {
         let modified = code.replace(
           /return\s+MusicFontSymbol\.GuitarVibratoStroke;/g,
           'return MusicFontSymbol.WiggleSawtoothNarrow;'

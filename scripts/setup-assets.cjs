@@ -23,6 +23,11 @@
  * The SoundFont and Bravura music font are NOT copied here — they're imported
  * in AlphaTabManager.ts via Vite's `?url` suffix and flow through Vite's
  * asset pipeline like any other hashed asset.
+ *
+ * The copies also get the same vibrato-glyph remap as the
+ * `alphatabVibratoPatch` plugin in vite.config.ts: with `core.useWorkers`
+ * enabled the release build renders the score inside alphaTab.worker.mjs /
+ * alphaTab.core.mjs, and files in public/ bypass Vite transforms entirely.
  */
 
 'use strict';
@@ -38,12 +43,25 @@ function ensureDir(dir) {
   if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
 }
 
+// Mirror of alphatabVibratoPatch in vite.config.ts — keep the two in sync.
+function patchVibratoGlyphs(code) {
+  return code
+    .replace(
+      /return\s+MusicFontSymbol\.GuitarVibratoStroke;/g,
+      'return MusicFontSymbol.WiggleSawtoothNarrow;'
+    )
+    .replace(
+      /return\s+MusicFontSymbol\.GuitarWideVibratoStroke;/g,
+      'return MusicFontSymbol.WiggleSawtooth;'
+    );
+}
+
 function copy(src, dest, label) {
   if (!fs.existsSync(src)) {
     console.warn(`  ⚠ ${label} source not found at ${src}. Run 'npm install' first.`);
     return;
   }
-  fs.copyFileSync(src, dest);
+  fs.writeFileSync(dest, patchVibratoGlyphs(fs.readFileSync(src, 'utf8')));
   const kb = Math.round(fs.statSync(dest).size / 1024);
   console.log(`  ✓ Copied ${label} (${kb} KB)`);
 }
