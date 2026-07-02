@@ -24,10 +24,9 @@
  * in AlphaTabManager.ts via Vite's `?url` suffix and flow through Vite's
  * asset pipeline like any other hashed asset.
  *
- * The copies also get the same vibrato-glyph remap as the
- * `alphatabVibratoPatch` plugin in vite.config.ts: with `core.useWorkers`
- * enabled the release build renders the score inside alphaTab.worker.mjs /
- * alphaTab.core.mjs, and files in public/ bypass Vite transforms entirely.
+ * The files are copied VERBATIM — no code patching. (A vibrato-glyph remap
+ * was briefly applied here; it turned out the approved app look is the
+ * unpatched glyph rendering. See the note in vite.config.ts.)
  */
 
 'use strict';
@@ -43,25 +42,12 @@ function ensureDir(dir) {
   if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
 }
 
-// Mirror of alphatabVibratoPatch in vite.config.ts — keep the two in sync.
-function patchVibratoGlyphs(code) {
-  return code
-    .replace(
-      /return\s+MusicFontSymbol\.GuitarVibratoStroke;/g,
-      'return MusicFontSymbol.WiggleSawtoothNarrow;'
-    )
-    .replace(
-      /return\s+MusicFontSymbol\.GuitarWideVibratoStroke;/g,
-      'return MusicFontSymbol.WiggleSawtooth;'
-    );
-}
-
 function copy(src, dest, label) {
   if (!fs.existsSync(src)) {
     console.warn(`  ⚠ ${label} source not found at ${src}. Run 'npm install' first.`);
     return;
   }
-  fs.writeFileSync(dest, patchVibratoGlyphs(fs.readFileSync(src, 'utf8')));
+  fs.copyFileSync(src, dest);
   const kb = Math.round(fs.statSync(dest).size / 1024);
   console.log(`  ✓ Copied ${label} (${kb} KB)`);
 }

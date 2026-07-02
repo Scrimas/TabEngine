@@ -2,28 +2,13 @@ import { defineConfig } from 'vite';
 import { svelte } from '@sveltejs/vite-plugin-svelte';
 import path from 'path';
 
-function alphatabVibratoPatch() {
-  return {
-    name: 'alphatab-vibrato-patch',
-    transform(code: string, id: string) {
-      // Since alphaTab 1.8 the ESM code lives in alphaTab.core.mjs (the
-      // package entry alphaTab.mjs only re-exports it). scripts/setup-assets.cjs
-      // applies the same patch to the worker copies in public/assets/, which
-      // bypass Vite transforms.
-      if (id.includes('alphaTab.core.mjs') || id.includes('alphaTab.js')) {
-        let modified = code.replace(
-          /return\s+MusicFontSymbol\.GuitarVibratoStroke;/g,
-          'return MusicFontSymbol.WiggleSawtoothNarrow;'
-        );
-        modified = modified.replace(
-          /return\s+MusicFontSymbol\.GuitarWideVibratoStroke;/g,
-          'return MusicFontSymbol.WiggleSawtooth;'
-        );
-        return { code: modified };
-      }
-    }
-  };
-}
+// NOTE: an `alphatabVibratoPatch` plugin used to live here, remapping
+// GuitarVibratoStroke/GuitarWideVibratoStroke → WiggleSawtoothNarrow/
+// WiggleSawtooth. It matched the pre-1.8 filename `alphaTab.js` and had been
+// silently dead since the alphaTab 1.8 upgrade — the approved app look (small
+// smooth vibrato waves) is the UNPATCHED GuitarVibratoStroke rendering, and
+// re-activating the remap replaced the waves with an angular sawtooth zigzag.
+// Do not resurrect it.
 
 // Tauri 2 exposes TAURI_ENV_DEBUG=true|false to beforeBuildCommand
 // (TAURI_DEBUG was the Tauri 1 name and is no longer set).
@@ -31,7 +16,7 @@ const tauriDebug = process.env.TAURI_ENV_DEBUG === 'true';
 
 // https://vitejs.dev/config/
 export default defineConfig(async () => ({
-  plugins: [svelte(), alphatabVibratoPatch()],
+  plugins: [svelte()],
 
   // Resolve $lib alias
   resolve: {
