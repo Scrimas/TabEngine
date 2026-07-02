@@ -10,7 +10,8 @@
     "preview": "vite preview",
     "tauri": "tauri",
     "check": "svelte-check --tsconfig ./tsconfig.json",
-    "postinstall": "node scripts/setup-assets.cjs"
+    "postinstall": "node scripts/setup-assets.cjs",
+    "sync-songsterr": "node scripts/sync-songsterr.cjs"
   },
   "dependencies": {
     "@coderline/alphatab": "^1.3.0",
