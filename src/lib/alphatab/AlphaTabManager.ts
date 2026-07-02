@@ -11,15 +11,24 @@
  *  3. Expose thin wrappers around the alphaTab API so components never import
  *     alphaTab directly — all state flows through this module.
  *
- * Worker / SoundFont loading
- * ──────────────────────────
- *  - alphaTab auto-detects its worker from `core.scriptFile`.  We point
- *    that at the copy of alphaTab.js we serve under `/alphaTab.worker.js` —
- *    alphaTab uses the same bundle as both main thread and worker entry.
- *    Alternatively we omit it and let alphaTab auto-detect via import.meta.url
- *    (works in Vite ESM context with optimizeDeps.exclude).
- *  - `sonivox.sf2` is served from `/soundfont/sonivox.sf2` (copied to public/
- *    by scripts/setup-assets.cjs during postinstall).
+ * Worker / SoundFont / Bravura font loading
+ * ──────────────────────────────────────────
+ *  - alphaTab's player spawns a synthesis Web Worker (and AudioWorklet)
+ *    resolved as `new URL('./alphaTab.worker.mjs', import.meta.url)` — i.e.
+ *    relative to its own script. In prod that's the Vite chunk under
+ *    /assets/, so scripts/setup-assets.cjs copies alphaTab.worker.mjs,
+ *    alphaTab.worklet.mjs and alphaTab.core.mjs into public/assets/. In dev
+ *    alphaTab is unbundled (optimizeDeps.exclude) and resolves them from
+ *    node_modules on its own.
+ *  - `sonivox.sf2` and the Bravura music font are imported with Vite's `?url`
+ *    suffix directly from the alphaTab package (NOT served as raw public/
+ *    passthrough files). This matters under Tauri: its asset protocol derives
+ *    Content-Type from Vite's build manifest, and files copied into public/
+ *    verbatim (bypassing Vite's asset pipeline) aren't in that manifest — they
+ *    get served with the correct bytes but an incorrect `text/html`
+ *    Content-Type, which makes the browser refuse to use them as a font (and
+ *    breaks the SoundFont fetch downstream). `?url` imports make Vite treat
+ *    these exactly like any other processed/hashed asset, avoiding the bug.
  *  - Both assets are bundled into the Tauri binary via the Vite dist/ folder,
  *    so the app works fully offline after first install.
  */
@@ -28,6 +37,10 @@
 import * as alphaTab from '@coderline/alphatab';
 import { updatePlayer, resetPlayer } from '$lib/stores/player';
 import { setTracks } from '$lib/stores/tracks';
+import bravuraWoff2 from '@coderline/alphatab/font/Bravura.woff2?url';
+import bravuraWoff from '@coderline/alphatab/font/Bravura.woff?url';
+import bravuraOtf from '@coderline/alphatab/font/Bravura.otf?url';
+import sonivoxSf2 from '@coderline/alphatab/soundfont/sonivox.sf2?url';
 import { TRACK_COLORS, formatTuning } from '$lib/types';
 import type { TrackState } from '$lib/types';
 import { get } from 'svelte/store';
@@ -72,6 +85,15 @@ export function initAlphaTab(container: HTMLElement): void {
       engine: 'svg',
       // Leave scriptFile undefined → alphaTab auto-detects from import.meta.url
       // in the Vite ESM build (requires optimizeDeps.exclude in vite.config.ts)
+      //
+      // smuflFontSources (not fontDirectory) so the Bravura font is resolved
+      // via Vite's own `?url` asset pipeline — see the file-header comment for
+      // why this matters under Tauri's asset protocol.
+      smuflFontSources: new Map([
+        [alphaTab.FontFileFormat.Woff2, bravuraWoff2],
+        [alphaTab.FontFileFormat.Woff,  bravuraWoff],
+        [alphaTab.FontFileFormat.OpenType, bravuraOtf],
+      ]),
     },
     display: {
       layoutMode:   alphaTab.LayoutMode.Page,
@@ -105,7 +127,7 @@ export function initAlphaTab(container: HTMLElement): void {
     },
     player: {
       enablePlayer:   true,
-      soundFont:      '/soundfont/sonivox.sf2',
+      soundFont:      sonivoxSf2,
       enableCursor:   true,
       scrollElement:  viewportEl,
       scrollMode:     alphaTab.ScrollMode.Continuous,
