@@ -36,6 +36,7 @@ pub struct LibraryEntry {
 /// into a `Uint8Array` before passing to `alphaTab.AlphaTabApi.load()`.
 #[tauri::command]
 pub async fn read_gp_file(path: String) -> Result<Vec<u8>, String> {
+    ensure_gp_path(Path::new(&path))?;
     fs::read(&path).map_err(|e| format!("Failed to read '{}': {}", path, e))
 }
 
@@ -64,7 +65,7 @@ pub async fn scan_directory_for_gp(dir: String) -> Result<Vec<LibraryEntry>, Str
     }
 
     let mut entries: Vec<LibraryEntry> = Vec::new();
-    scan_recursive(root, &mut entries).map_err(|e| e.to_string())?;
+    scan_recursive(root, &mut entries, 0).map_err(|e| e.to_string())?;
     entries.sort_by(|a, b| a.name.cmp(&b.name));
     Ok(entries)
 }
@@ -83,7 +84,12 @@ pub async fn file_metadata(path: String) -> Result<LibraryEntry, String> {
 /// Creates parent directories if they don't exist.
 #[tauri::command]
 pub async fn save_gp_file(path: String, bytes: Vec<u8>) -> Result<(), String> {
-    if let Some(parent) = Path::new(&path).parent() {
+    let p = Path::new(&path);
+    ensure_gp_path(p)?;
+    if let Some(stem) = p.file_stem().and_then(|s| s.to_str()) {
+        validate_file_stem(stem)?;
+    }
+    if let Some(parent) = p.parent() {
         fs::create_dir_all(parent)
             .map_err(|e| format!("Failed to create directory '{}': {}", parent.display(), e))?;
     }
@@ -95,6 +101,7 @@ pub async fn save_gp_file(path: String, bytes: Vec<u8>) -> Result<(), String> {
 #[tauri::command]
 pub async fn rename_gp_file(old_path: String, new_name: String) -> Result<LibraryEntry, String> {
     let old = Path::new(&old_path);
+    ensure_gp_path(old)?;
     let parent = old
         .parent()
         .ok_or_else(|| format!("Cannot determine parent directory of '{}'", old_path))?;
@@ -103,10 +110,11 @@ pub async fn rename_gp_file(old_path: String, new_name: String) -> Result<Librar
         .and_then(|e| e.to_str())
         .unwrap_or("gp5");
 
-    let new_filename = format!("{}.{}", new_name.trim(), ext);
+    let name = validate_file_stem(&new_name)?;
+    let new_filename = format!("{}.{}", name, ext);
     let new_path = parent.join(&new_filename);
 
-    if new_path.exists() {
+    if new_path.exists() && !is_same_file(old, &new_path) {
         return Err(format!(
             "A file named '{}' already exists in that folder.",
             new_filename
@@ -121,12 +129,58 @@ pub async fn rename_gp_file(old_path: String, new_name: String) -> Result<Librar
 
 #[tauri::command]
 pub async fn delete_gp_file(path: String) -> Result<(), String> {
+    ensure_gp_path(Path::new(&path))?;
     fs::remove_file(&path).map_err(|e| format!("Failed to delete '{}': {}", path, e))
 }
 
 // ── Internal helpers ──────────────────────────────────────────────────────────
 
 const GP_EXTENSIONS: &[&str] = &["gp", "gp3", "gp4", "gp5", "gpx"];
+
+/// Directory depth limit for library scans (defense against pathological trees).
+const MAX_SCAN_DEPTH: u32 = 32;
+
+/// Guard shared by every file command: reject paths whose extension is not a
+/// known Guitar Pro extension.
+fn ensure_gp_path(path: &Path) -> Result<(), String> {
+    if is_gp_file(path) {
+        Ok(())
+    } else {
+        Err(format!("'{}' is not a Guitar Pro file.", path.display()))
+    }
+}
+
+/// Validate a user-supplied file stem (name without extension).
+/// Rejects path separators/traversal and characters invalid on Windows so a
+/// library synced across machines never produces an unusable filename.
+fn validate_file_stem(raw: &str) -> Result<&str, String> {
+    let name = raw.trim();
+    if name.is_empty() {
+        return Err("File name cannot be empty.".to_string());
+    }
+    if name == "." || name == ".." || name.chars().any(|c| c == '/' || c == '\\') {
+        return Err("File name cannot contain path separators.".to_string());
+    }
+    if name.chars().any(|c| matches!(c, '<' | '>' | ':' | '"' | '|' | '?' | '*') || c.is_control())
+        || name.ends_with('.')
+    {
+        return Err(format!(
+            "'{}' contains characters that are not valid in file names.",
+            name
+        ));
+    }
+    Ok(name)
+}
+
+/// True when both paths resolve to the same file on disk. Lets a rename that
+/// only changes letter case succeed on case-insensitive filesystems, where
+/// `new_path.exists()` is already true for the file being renamed.
+fn is_same_file(a: &Path, b: &Path) -> bool {
+    match (fs::canonicalize(a), fs::canonicalize(b)) {
+        (Ok(ca), Ok(cb)) => ca == cb,
+        _ => false,
+    }
+}
 
 fn is_gp_file(path: &Path) -> bool {
     path.extension()
@@ -156,14 +210,24 @@ fn build_entry(path: &Path) -> std::io::Result<LibraryEntry> {
     })
 }
 
-fn scan_recursive(dir: &Path, out: &mut Vec<LibraryEntry>) -> std::io::Result<()> {
+fn scan_recursive(dir: &Path, out: &mut Vec<LibraryEntry>, depth: u32) -> std::io::Result<()> {
+    if depth > MAX_SCAN_DEPTH {
+        return Ok(());
+    }
     for entry in fs::read_dir(dir)? {
         let entry = entry?;
         let path  = entry.path();
 
-        if path.is_dir() {
+        // Never follow symlinks — a link pointing at an ancestor directory
+        // would otherwise recurse forever.
+        let file_type = entry.file_type()?;
+        if file_type.is_symlink() {
+            continue;
+        }
+
+        if file_type.is_dir() {
             // Silently skip permission-denied sub-dirs
-            let _ = scan_recursive(&path, out);
+            let _ = scan_recursive(&path, out, depth + 1);
         } else if is_gp_file(&path) {
             if let Ok(lib_entry) = build_entry(&path) {
                 out.push(lib_entry);
