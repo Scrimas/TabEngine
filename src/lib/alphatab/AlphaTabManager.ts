@@ -684,10 +684,14 @@ function applySongsterrRhythmStyle(): void {
 
     // Drop the big vertical "TAB" clef glyph alphaTab draws at the start of
     // every line — redundant with the track pills toolbar, and repeats on
-    // every system rather than just once.
+    // every system rather than just once. TabClefGlyph isn't a public export
+    // and class names are mangled by minification, so identify it structurally:
+    // it's the only pre-beat glyph whose music-font symbol is a tab clef
+    // (SMuFL sixStringTabClef=57453 / fourStringTabClef=57454).
+    const TAB_CLEF_SYMBOLS = [57453, 57454];
     const originalAddPreBeatGlyph = instance.addPreBeatGlyph;
     instance.addPreBeatGlyph = function(glyph: any) {
-      if (glyph?.constructor?.name === 'TabClefGlyph') return;
+      if (glyph && TAB_CLEF_SYMBOLS.includes(glyph.symbol)) return;
       originalAddPreBeatGlyph.call(this, glyph);
     };
 

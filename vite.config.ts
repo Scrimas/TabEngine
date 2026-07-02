@@ -21,6 +21,10 @@ function alphatabVibratoPatch() {
   };
 }
 
+// Tauri 2 exposes TAURI_ENV_DEBUG=true|false to beforeBuildCommand
+// (TAURI_DEBUG was the Tauri 1 name and is no longer set).
+const tauriDebug = process.env.TAURI_ENV_DEBUG === 'true';
+
 // https://vitejs.dev/config/
 export default defineConfig(async () => ({
   plugins: [svelte(), alphatabVibratoPatch()],
@@ -54,8 +58,8 @@ export default defineConfig(async () => ({
   // alphaTab uses BigInt literals, so we target esnext to avoid transpilation issues.
   build: {
     target: ['esnext', 'chrome120'],
-    minify: process.env.TAURI_DEBUG ? false : 'esbuild',
-    sourcemap: !!process.env.TAURI_DEBUG,
+    minify: tauriDebug ? false : 'esbuild',
+    sourcemap: tauriDebug,
     // Raise chunk size warning threshold — alphaTab + sonivox.sf2 reference is large
     chunkSizeWarningLimit: 5000,
     rollupOptions: {
