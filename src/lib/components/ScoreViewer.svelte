@@ -168,6 +168,12 @@
   let resizeObserver: ResizeObserver | null = null;
   let resizeTimer: any = null;
 
+  // Observer that hides vibrato/watermark text after each render. Kept at
+  // component scope so the previous one can be disconnected on re-render —
+  // observers are never released while observing, so one-per-render would
+  // accumulate across track switches and file loads.
+  let vibratoObserver: MutationObserver | null = null;
+
   // ── Mount / lifecycle ────────────────────────────────────────────────────────
   onMount(() => {
     initAlphaTab(containerEl);
@@ -202,8 +208,9 @@
 
       // Run immediately and observe for any late DOM additions (SVG engine)
       hideVibratoText();
-      const observer = new MutationObserver(hideVibratoText);
-      if (atMainEl) observer.observe(atMainEl, { childList: true, subtree: true });
+      vibratoObserver?.disconnect();
+      vibratoObserver = new MutationObserver(hideVibratoText);
+      if (atMainEl) vibratoObserver.observe(atMainEl, { childList: true, subtree: true });
 
       refreshHandles();
       refreshTuningLabels();
@@ -241,12 +248,19 @@
 
   onDestroy(() => {
     resizeObserver?.disconnect();
+    vibratoObserver?.disconnect();
     if (resizeTimer) clearTimeout(resizeTimer);
     unlistenDragDrop?.();
     destroyAlphaTab();
   });
 
   // ── Public API ───────────────────────────────────────────────────────────────
+  function reportLoadFailure(message: string, err: unknown): void {
+    console.error(`[ScoreViewer] ${message}:`, err);
+    scoreReady = true; // dismiss the loading overlay so the UI isn't stuck
+    alert(`${message}: ${err}`);
+  }
+
   export async function loadFile(path: string): Promise<void> {
     scoreReady = false;
     selectedTrackIndex = null;
@@ -256,7 +270,7 @@
       const bytes: number[] = await invoke('read_gp_file', { path });
       loadFromBytes(new Uint8Array(bytes));
     } catch (err) {
-      console.error('[ScoreViewer] Failed to load file:', err);
+      reportLoadFailure('Failed to load file', err);
     }
   }
 
@@ -270,10 +284,14 @@
     const ext = path.split('.').pop()?.toLowerCase() ?? '';
     if (!['gp', 'gp3', 'gp4', 'gp5', 'gpx'].includes(ext)) return;
     scoreReady = false;
-    const importedPath = await importFileToLibrary(path);
-    const meta: LibraryEntry = await invoke('file_metadata', { path: importedPath });
-    recordOpen(meta);
-    await loadFile(importedPath);
+    try {
+      const importedPath = await importFileToLibrary(path);
+      const meta: LibraryEntry = await invoke('file_metadata', { path: importedPath });
+      recordOpen(meta);
+      await loadFile(importedPath);
+    } catch (err) {
+      reportLoadFailure('Failed to open dropped file', err);
+    }
   }
 </script>
 
