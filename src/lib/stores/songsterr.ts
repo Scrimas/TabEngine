@@ -23,6 +23,11 @@ export const songsterrStore = writable<SongsterrSearchState>({ ...DEFAULT_STATE 
 
 let debounceTimer: ReturnType<typeof setTimeout> | null = null;
 
+// Monotonic token identifying the most recent search request. A response is
+// only applied if its token still matches — otherwise a slow response for an
+// old query would overwrite the results (and offset) of a newer one.
+let searchGeneration = 0;
+
 /**
  * Trigger a debounced search. Resets results and offset.
  * Waits 300ms after the last keystroke before hitting the API.
@@ -38,6 +43,7 @@ export function searchDebounced(query: string): void {
 
   const trimmed = query.trim();
   if (!trimmed) {
+    searchGeneration++; // invalidate any in-flight request
     songsterrStore.update(s => ({
       ...s,
       results: [],
@@ -48,6 +54,10 @@ export function searchDebounced(query: string): void {
     return;
   }
 
+  // Invalidate any in-flight request as soon as the new query is scheduled —
+  // otherwise a slow response for the previous query arriving during the
+  // debounce window would still be applied.
+  searchGeneration++;
   songsterrStore.update(s => ({ ...s, isSearching: true }));
 
   debounceTimer = setTimeout(() => {
@@ -71,6 +81,7 @@ async function executeSearch(
   from: number,
   reset: boolean,
 ): Promise<void> {
+  const generation = ++searchGeneration;
   try {
     const results: SongsterrSong[] = await invoke('songsterr_search', {
       query,
@@ -78,6 +89,8 @@ async function executeSearch(
       size: PAGE_SIZE,
       from,
     });
+
+    if (generation !== searchGeneration) return; // stale response — drop it
 
     songsterrStore.update(s => ({
       ...s,
@@ -88,6 +101,8 @@ async function executeSearch(
       offset:      (reset ? 0 : s.offset) + results.length,
     }));
   } catch (err) {
+    if (generation !== searchGeneration) return; // stale failure — drop it
+
     songsterrStore.update(s => ({
       ...s,
       isSearching: false,
@@ -170,5 +185,6 @@ export async function fetchTabBytes(songId: number): Promise<Uint8Array> {
 
 export function resetSongsterr(): void {
   if (debounceTimer) clearTimeout(debounceTimer);
+  searchGeneration++; // invalidate any in-flight request
   songsterrStore.set({ ...DEFAULT_STATE });
 }
