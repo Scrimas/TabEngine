@@ -10,6 +10,18 @@ mod songsterr;
 // use tauri::Manager;
 
 pub fn run() {
+    // WebKitGTK's DMA-BUF accelerated compositing path fails to create an EGL
+    // display on several Linux GPU/compositor combos (Intel Xe + Wayland,
+    // NVIDIA + Wayland), aborting the process before any window opens. Users
+    // can still override this by exporting the var themselves.
+    #[cfg(target_os = "linux")]
+    if std::env::var_os("WEBKIT_DISABLE_DMABUF_RENDERER").is_none() {
+        // SAFETY: single-threaded at this point, before any webview/GTK init.
+        unsafe {
+            std::env::set_var("WEBKIT_DISABLE_DMABUF_RENDERER", "1");
+        }
+    }
+
     tauri::Builder::default()
         // ── Plugins ───────────────────────────────────────────────────────
         .plugin(tauri_plugin_dialog::init())

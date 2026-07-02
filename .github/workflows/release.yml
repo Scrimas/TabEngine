@@ -49,7 +49,8 @@ jobs:
             libxdo-dev \
             libssl-dev \
             libayatana-appindicator3-dev \
-            librsvg2-dev
+            librsvg2-dev \
+            squashfs-tools
 
       - name: Install npm dependencies
         run: npm ci
@@ -64,3 +65,35 @@ jobs:
           releaseBody: "Automated release binaries for TabEngine. See assets below."
           releaseDraft: true
           prerelease: false
+
+      # linuxdeploy bundles its own (Ubuntu 22.04-era) libwayland-client/cursor/egl/server
+      # into the AppImage. Its AppRun prepends the bundle to LD_LIBRARY_PATH, shadowing the
+      # host's libs — on newer Wayland compositors this breaks WebKitGTK's EGL init
+      # (EGL_BAD_PARAMETER, WebKitWebProcess aborts). Every desktop capable of running
+      # webkit2gtk-4.1 already ships compatible wayland libs system-wide, so stripping the
+      # bundled copies and repacking is safe and lets the AppImage fall through to the host.
+      - name: Strip stale bundled Wayland libs from AppImage
+        if: matrix.platform == 'ubuntu-22.04'
+        run: |
+          set -euo pipefail
+          APPIMAGE=$(find src-tauri/target/release/bundle/appimage -name '*.AppImage' | head -1)
+          chmod +x "$APPIMAGE"
+          "$APPIMAGE" --appimage-extract >/dev/null
+          rm -f squashfs-root/usr/lib/libwayland-client.so.0 \
+                squashfs-root/usr/lib/libwayland-cursor.so.0 \
+                squashfs-root/usr/lib/libwayland-egl.so.1 \
+                squashfs-root/usr/lib/libwayland-server.so.0
+          curl -fsSL -o appimagetool https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-x86_64.AppImage
+          chmod +x appimagetool
+          rm -f "$APPIMAGE"
+          ARCH=x86_64 ./appimagetool --appimage-extract-and-run squashfs-root "$APPIMAGE"
+          rm -rf squashfs-root appimagetool
+
+      - name: Re-upload patched AppImage to draft release
+        if: matrix.platform == 'ubuntu-22.04'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          APPIMAGE=$(find src-tauri/target/release/bundle/appimage -name '*.AppImage' | head -1)
+          gh release upload "${{ github.ref_name }}" "$APPIMAGE" --clobber --repo "${{ github.repository }}"
