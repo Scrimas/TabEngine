@@ -1,6 +1,6 @@
 <script lang="ts">
   import { createEventDispatcher, onMount, onDestroy, tick } from 'svelte';
-  import { songsterrStore, searchDebounced, loadMore, selectSong, resetSongsterr, fetchTabBytes } from '$lib/stores/songsterr';
+  import { songsterrStore, searchDebounced, loadMore, selectSong, resetSongsterr, fetchTabBytes, fetchRestrictedTabBytes } from '$lib/stores/songsterr';
   import SongsterrResultCard from './SongsterrResultCard.svelte';
   import SongsterrPreview from './SongsterrPreview.svelte';
   import type { SongsterrSong } from '$lib/types';
@@ -95,11 +95,18 @@
   async function handleEnterLoad() {
     const song = $songsterrStore.selected;
     if (!song) return;
-    if (['loading', 'restricted', 'unpublished'].includes(song.restrictionStatus ?? '')) return;
+    if (['loading', 'unpublished'].includes(song.restrictionStatus ?? '')) return;
     if ($songsterrStore.isFetching) return;
 
     try {
-      const bytes = await fetchTabBytes(song.id);
+      let bytes: Uint8Array;
+      if (song.restrictionStatus === 'restricted') {
+        const slug = song.title.toLowerCase().replace(/[^a-z0-9]+/g, '-');
+        const songUrl = `https://www.songsterr.com/a/wsa/${song.artist.name.toLowerCase().replace(/[^a-z0-9]+/g, '-')}-${slug}-tab-s${song.id}`;
+        bytes = await fetchRestrictedTabBytes(songUrl, song.title);
+      } else {
+        bytes = await fetchTabBytes(song.id);
+      }
       finishLoad(song, bytes);
     } catch {
       // Error is already stored in songsterrStore

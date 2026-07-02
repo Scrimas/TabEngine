@@ -2,7 +2,7 @@
   import { createEventDispatcher } from 'svelte';
   import { instrumentCategory, formatTuning, formatViews } from '$lib/types';
   import type { SongsterrSong } from '$lib/types';
-  import { fetchTabBytes, selectSong, songsterrStore } from '$lib/stores/songsterr';
+  import { fetchTabBytes, fetchRestrictedTabBytes, selectSong, songsterrStore } from '$lib/stores/songsterr';
   import { open as shellOpen } from '@tauri-apps/plugin-shell';
 
   export let song: SongsterrSong;
@@ -24,7 +24,14 @@
 
   async function handleLoad() {
     try {
-      const bytes = await fetchTabBytes(song.id);
+      let bytes: Uint8Array;
+      if (song.restrictionStatus === 'restricted') {
+        const slug = song.title.toLowerCase().replace(/[^a-z0-9]+/g, '-');
+        const songUrl = `https://www.songsterr.com/a/wsa/${song.artist.name.toLowerCase().replace(/[^a-z0-9]+/g, '-')}-${slug}-tab-s${song.id}`;
+        bytes = await fetchRestrictedTabBytes(songUrl, song.title);
+      } else {
+        bytes = await fetchTabBytes(song.id);
+      }
       // Capture `song` from this closure rather than re-reading the store later —
       // the user may have selected a different song while this fetch was in flight.
       dispatch('load', { song, bytes });
@@ -117,7 +124,7 @@
           <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/>
           <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
         </svg>
-        <span>Copyright-restricted by Songsterr.</span>
+        <span>Copyright-restricted. Available via downloader.</span>
       </div>
     {:else if song.restrictionStatus === 'unpublished'}
       <div class="restriction-box warning">
@@ -138,23 +145,32 @@
 
     <button
       class="btn-load press"
-      class:disabled-restricted={song.restrictionStatus === 'restricted' || song.restrictionStatus === 'unpublished'}
+      class:disabled-restricted={song.restrictionStatus === 'unpublished'}
       on:click={handleLoad}
-      disabled={$songsterrStore.isFetching || song.restrictionStatus === 'loading' || song.restrictionStatus === 'restricted' || song.restrictionStatus === 'unpublished'}
+      disabled={$songsterrStore.isFetching || song.restrictionStatus === 'loading' || song.restrictionStatus === 'unpublished'}
     >
       {#if $songsterrStore.isFetching}
         <span class="spinner"></span>
         Loading…
       {:else}
-        <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-          <path d="M3 8L7 12L13 4" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-        </svg>
-        Load in Player
+        {#if song.restrictionStatus === 'restricted'}
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+            <polyline points="7 10 12 15 17 10"/>
+            <line x1="12" y1="15" x2="12" y2="3"/>
+          </svg>
+          Load via Downloader
+        {:else}
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+            <path d="M3 8L7 12L13 4" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+          Load in Player
+        {/if}
       {/if}
     </button>
     <button
       class="btn-web press"
-      class:primary-web={song.restrictionStatus === 'restricted' || song.restrictionStatus === 'unpublished'}
+      class:primary-web={song.restrictionStatus === 'unpublished'}
       on:click={handleOpenWeb}
     >
       <svg width="14" height="14" viewBox="0 0 16 16" fill="none">

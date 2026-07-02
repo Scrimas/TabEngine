@@ -188,3 +188,105 @@ export function resetSongsterr(): void {
   searchGeneration++; // invalidate any in-flight request
   songsterrStore.set({ ...DEFAULT_STATE });
 }
+
+// ── Downloader Local Integration ─────────────────────────────────────────────
+import { SongsterrToAlphaTabConverter } from '$lib/songsterr-downloader/songsterr-to-alphatab.converter';
+import type { SongsterrStateMetaCurrent, SongsterrRevisionTrackPayload, SongsterrStateMetaCurrentTrack } from '$lib/songsterr-downloader/types';
+
+const CDN_BASE_URL = 'https://dqsljvtekg760.cloudfront.net';
+const CDN_BASE_URL_2 = 'https://d3d3l6a6rcgkaf.cloudfront.net';
+
+/**
+ * Fetch a copyright-restricted song from Songsterr and compile it locally using the converter.
+ * Returns a Uint8Array ready for AlphaTabManager.loadFromBytes().
+ */
+export async function fetchRestrictedTabBytes(songUrl: string, songTitle: string): Promise<Uint8Array> {
+  songsterrStore.update(s => ({ ...s, isFetching: true, error: null }));
+  try {
+    // 1. Fetch song HTML page
+    const html = await invoke<string>('songsterr_fetch_url', { url: songUrl });
+
+    // 2. Parse HTML and extract state JSON
+    const parser = new DOMParser();
+    const doc = parser.parseFromString(html, 'text/html');
+    const stateScript =
+      doc.getElementById('state')?.childNodes?.[0]?.nodeValue ||
+      doc.getElementById('state')?.textContent ||
+      '';
+
+    if (!stateScript) {
+      throw new Error('Unable to find Songsterr state payload in page HTML');
+    }
+
+    const parsedState = JSON.parse(stateScript);
+    const current = parsedState?.meta?.current;
+
+    if (!current?.songId || !current?.revisionId || !current?.image) {
+      throw new Error('Songsterr state payload missing required revision fields');
+    }
+
+    const stateMeta: SongsterrStateMetaCurrent = {
+      songId: current.songId,
+      revisionId: current.revisionId,
+      image: current.image,
+      title: songTitle || current.title || 'Song',
+      artist: current.artist || 'Unknown Artist',
+      tracks: Array.isArray(current.tracks) ? current.tracks : [],
+    };
+
+    // 3. Fetch each track revision JSON from the CDNs (try primary first, fallback if it returns no revisions)
+    const tracksToFetch = stateMeta.tracks.filter(
+      (track) => typeof track.partId === 'number'
+    );
+
+    let fetchedRevisions = await fetchRevisionsFromCdn(stateMeta, tracksToFetch, CDN_BASE_URL);
+    if (fetchedRevisions.length === 0) {
+      console.warn('[SongsterrStore] Primary CDN returned no revisions, trying fallback CDN...');
+      fetchedRevisions = await fetchRevisionsFromCdn(stateMeta, tracksToFetch, CDN_BASE_URL_2);
+    }
+
+    if (fetchedRevisions.length === 0) {
+      throw new Error('Failed to fetch any revision payloads from Songsterr CDNs');
+    }
+
+    // 4. Run the local alphaTab converter to generate the GP7 binary
+    const converter = new SongsterrToAlphaTabConverter();
+    const result = converter.toGp7({
+      meta: stateMeta,
+      revisions: fetchedRevisions,
+    });
+
+    songsterrStore.update(s => ({ ...s, isFetching: false }));
+    return result.data;
+  } catch (err) {
+    const errorMsg = String(err);
+    songsterrStore.update(s => ({
+      ...s,
+      isFetching: false,
+      error: `Failed to load restricted tab: ${errorMsg}`,
+    }));
+    throw err;
+  }
+}
+
+async function fetchRevisionsFromCdn(
+  stateMeta: SongsterrStateMetaCurrent,
+  tracks: SongsterrStateMetaCurrentTrack[],
+  cdnBaseUrl: string
+): Promise<{ trackMeta: SongsterrStateMetaCurrentTrack; revision: SongsterrRevisionTrackPayload }[]> {
+  const promises = tracks.map(async (track) => {
+    const url = `${cdnBaseUrl}/${stateMeta.songId}/${stateMeta.revisionId}/${stateMeta.image}/${track.partId}.json`;
+    try {
+      const jsonText = await invoke<string>('songsterr_fetch_url', { url });
+      const revision = JSON.parse(jsonText) as SongsterrRevisionTrackPayload;
+      return { trackMeta: track, revision };
+    } catch (err) {
+      console.error(`[SongsterrStore] Failed to fetch part ${track.partId} from CDN ${cdnBaseUrl}:`, err);
+      return null;
+    }
+  });
+
+  const results = await Promise.all(promises);
+  return results.filter(Boolean) as { trackMeta: SongsterrStateMetaCurrentTrack; revision: SongsterrRevisionTrackPayload }[];
+}
+
