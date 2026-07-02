@@ -81,7 +81,12 @@ export function initAlphaTab(container: HTMLElement): void {
 
   const settings: ConstructorParameters<typeof alphaTab.AlphaTabApi>[1] = {
     core: {
-      useWorkers: false,
+      // Workers MUST stay enabled: alphaTab relays synth audio samples through
+      // the main thread into the AudioWorklet, so main-thread layout/SVG work
+      // (lazy per-system rendering during playback auto-scroll) starves the
+      // audio pipeline → distorted, slowed playback. Worker files are shipped
+      // to public/assets/ by scripts/setup-assets.cjs.
+      useWorkers: true,
       engine: 'svg',
       // Leave scriptFile undefined → alphaTab auto-detects from import.meta.url
       // in the Vite ESM build (requires optimizeDeps.exclude in vite.config.ts)
@@ -128,6 +133,15 @@ export function initAlphaTab(container: HTMLElement): void {
     player: {
       enablePlayer:   true,
       soundFont:      sonivoxSf2,
+      // Audio anti-crackle cushion. Samples are relayed synth-worker → main
+      // thread → AudioWorklet; the worklet keeps ~half this amount buffered
+      // and refills through the main thread. At the 500 ms default the real
+      // cushion is only ~90–115 ms — any main-thread stall longer than that
+      // (lazy SVG insertion during auto-scroll, CPU power-saver throttling,
+      // WebKitGTK's GStreamer output) causes distorted/slowed playback.
+      // Tradeoff: volume/speed/metronome changes take effect up to ~0.7 s
+      // late, because already-synthesized samples keep playing.
+      bufferTimeInMilliseconds: 1500,
       enableCursor:   true,
       scrollElement:  viewportEl,
       scrollMode:     alphaTab.ScrollMode.Continuous,
