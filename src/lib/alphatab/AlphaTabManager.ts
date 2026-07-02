@@ -715,72 +715,11 @@ export function getTuningAnchor(trackIndex: number): { x: number; lineYs: number
   return { x: bounds.x, lineYs, notes: formatTuning(tuning).split(' ') };
 }
 
-// ── Songsterr rhythm styling monkey-patch ─────────────────────────────────────
-
-function applySongsterrRhythmStyle(): void {
-  const tabFactory = ((alphaTab.Environment as any).defaultRenderers as any[]).find(f => f.staffId === 'tab');
-  if (!tabFactory) return;
-
-  const originalCreate = tabFactory.create;
-  tabFactory.create = function(renderer: any, bar: any) {
-    const instance = originalCreate.call(this, renderer, bar) as any;
-
-    // Drop the big vertical "TAB" clef glyph alphaTab draws at the start of
-    // every line — redundant with the track pills toolbar, and repeats on
-    // every system rather than just once. TabClefGlyph isn't a public export
-    // and class names are mangled by minification, so identify it structurally:
-    // it's the only pre-beat glyph whose music-font symbol is a tab clef
-    // (SMuFL sixStringTabClef=57453 / fourStringTabClef=57454).
-    const TAB_CLEF_SYMBOLS = [57453, 57454];
-    const originalAddPreBeatGlyph = instance.addPreBeatGlyph;
-    instance.addPreBeatGlyph = function(glyph: any) {
-      if (glyph && TAB_CLEF_SYMBOLS.includes(glyph.symbol)) return;
-      originalAddPreBeatGlyph.call(this, glyph);
-    };
-
-    // 1. Override flag top and bottom Y calculation so stems/beams are always flat
-    // and drawn relative to the rhythm baseline, rather than sloping or overlapping notes.
-    instance.getFlagTopY = function(beat: any, direction: any) {
-      const bottomStaffLineY = this.getLineY(this.drawnLineCount - 1);
-      return bottomStaffLineY + 12;
-    };
-
-    instance.getFlagBottomY = function(beat: any, direction: any) {
-      const bottomStaffLineY = this.getLineY(this.drawnLineCount - 1);
-      return bottomStaffLineY + 12 + 14; 
-    };
-
-    // 2. Override stem painting so they don't cross the staff lines
-    instance.paintBeamingStem = function(beat: any, cy: number, x: number, topY: number, bottomY: number, canvas: any) {
-      if (bottomY < topY) {
-        const t = bottomY;
-        bottomY = topY;
-        topY = t;
-      }
-      
-      const bottomStaffLineY = cy + this.getLineY(this.drawnLineCount - 1);
-      const rhythmBaselineY = bottomStaffLineY + 12; 
-      
-      if (rhythmBaselineY < bottomY) {
-        const defaultColor = beat.voice.index === 0 
-          ? this.settings.display.resources.mainGlyphColor 
-          : this.settings.display.resources.secondaryGlyphColor;
-          
-        const oldColor = canvas.color;
-        canvas.color = defaultColor;
-        canvas.fillRect(x, rhythmBaselineY, this.smuflMetrics.stemThickness, bottomY - rhythmBaselineY);
-        canvas.color = oldColor;
-      }
-    };
-    
-    // Removing the paintFlag override restores alphaTab's original flag/tuplet
-    // rendering (including triplet "3" brackets). The overrides above for
-    // getFlagTopY, getFlagBottomY, and paintBeamingStem are still respected by
-    // the original paintFlag implementation since it calls them on this instance.
-
-    return instance;
-  };
-}
-
-applySongsterrRhythmStyle();
+// ── Songsterr rhythm styling ──────────────────────────────────────────────────
+// The Songsterr-style tab tweaks (no TAB clef, detached flat rhythm strip)
+// used to be a runtime monkey-patch here, but with core.useWorkers the render
+// worker loads its own copy of the alphaTab core module where main-thread
+// patches never run — the strip re-attached to the note numbers. The tweaks
+// now live in scripts/alphatab-tab-style-patch.cjs, applied to the module
+// source by vite.config.ts (dev + bundle) and setup-assets.cjs (prod worker).
 

@@ -1,6 +1,7 @@
-import { defineConfig } from 'vite';
+import { defineConfig, type Plugin } from 'vite';
 import { svelte } from '@sveltejs/vite-plugin-svelte';
 import path from 'path';
+import { applyTabStylePatch, isAlphaTabCoreModule } from './scripts/alphatab-tab-style-patch.cjs';
 
 // NOTE: an `alphatabVibratoPatch` plugin used to live here, remapping
 // GuitarVibratoStroke/GuitarWideVibratoStroke → WiggleSawtoothNarrow/
@@ -10,13 +11,29 @@ import path from 'path';
 // re-activating the remap replaced the waves with an angular sawtooth zigzag.
 // Do not resurrect it.
 
+// Songsterr-style tab rendering (no TAB clef, detached flat rhythm strip).
+// Must be a source patch, not a runtime monkey-patch: with core.useWorkers
+// the render worker loads its own copy of the core module where app-side
+// patches never run. setup-assets.cjs applies the same patch to the
+// public/assets/ worker copies, which bypass Vite.
+function alphatabTabStylePatch(): Plugin {
+  return {
+    name: 'alphatab-tab-style-patch',
+    transform(code, id) {
+      if (isAlphaTabCoreModule(id)) {
+        return { code: applyTabStylePatch(code), map: null };
+      }
+    },
+  };
+}
+
 // Tauri 2 exposes TAURI_ENV_DEBUG=true|false to beforeBuildCommand
 // (TAURI_DEBUG was the Tauri 1 name and is no longer set).
 const tauriDebug = process.env.TAURI_ENV_DEBUG === 'true';
 
 // https://vitejs.dev/config/
 export default defineConfig(async () => ({
-  plugins: [svelte()],
+  plugins: [svelte(), alphatabTabStylePatch()],
 
   // Resolve $lib alias
   resolve: {

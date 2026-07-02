@@ -24,14 +24,19 @@
  * in AlphaTabManager.ts via Vite's `?url` suffix and flow through Vite's
  * asset pipeline like any other hashed asset.
  *
- * The files are copied VERBATIM — no code patching. (A vibrato-glyph remap
- * was briefly applied here; it turned out the approved app look is the
- * unpatched glyph rendering. See the note in vite.config.ts.)
+ * alphaTab.core.mjs gets the tab-style patch appended (detached rhythm strip,
+ * no TAB clef — see scripts/alphatab-tab-style-patch.cjs): these copies are
+ * what the production render worker loads, and they bypass Vite's transforms,
+ * so the Vite plugin alone would leave the worker unpatched. The other files
+ * are copied verbatim. (An unrelated vibrato-glyph remap was briefly applied
+ * here; the approved app look is the unpatched glyph rendering — see the note
+ * in vite.config.ts.)
  */
 
 'use strict';
 const fs   = require('fs');
 const path = require('path');
+const { applyTabStylePatch } = require('./alphatab-tab-style-patch.cjs');
 
 const ROOT       = path.resolve(__dirname, '..');
 const AT_DIST    = path.join(ROOT, 'node_modules', '@coderline', 'alphatab', 'dist');
@@ -42,14 +47,18 @@ function ensureDir(dir) {
   if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
 }
 
-function copy(src, dest, label) {
+function copy(src, dest, label, patch) {
   if (!fs.existsSync(src)) {
     console.warn(`  ⚠ ${label} source not found at ${src}. Run 'npm install' first.`);
     return;
   }
-  fs.copyFileSync(src, dest);
+  if (patch) {
+    fs.writeFileSync(dest, patch(fs.readFileSync(src, 'utf8')));
+  } else {
+    fs.copyFileSync(src, dest);
+  }
   const kb = Math.round(fs.statSync(dest).size / 1024);
-  console.log(`  ✓ Copied ${label} (${kb} KB)`);
+  console.log(`  ✓ Copied ${label} (${kb} KB${patch ? ', patched' : ''})`);
 }
 
 // ── main ─────────────────────────────────────────────────────────────────────
@@ -58,7 +67,8 @@ console.log('\nTabEngine postinstall: setting up alphaTab worker assets...');
 ensureDir(ASSETS_DIR);
 
 for (const file of ['alphaTab.worker.mjs', 'alphaTab.worklet.mjs', 'alphaTab.core.mjs']) {
-  copy(path.join(AT_DIST, file), path.join(ASSETS_DIR, file), file);
+  const patch = file === 'alphaTab.core.mjs' ? applyTabStylePatch : null;
+  copy(path.join(AT_DIST, file), path.join(ASSETS_DIR, file), file, patch);
 }
 
 console.log('Done.\n');
