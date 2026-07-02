@@ -1,6 +1,6 @@
 <script lang="ts">
-  import { createEventDispatcher, onMount, onDestroy } from 'svelte';
-  import { songsterrStore, searchDebounced, loadMore, selectSong, resetSongsterr } from '$lib/stores/songsterr';
+  import { createEventDispatcher, onMount, onDestroy, tick } from 'svelte';
+  import { songsterrStore, searchDebounced, loadMore, selectSong, resetSongsterr, fetchTabBytes } from '$lib/stores/songsterr';
   import SongsterrResultCard from './SongsterrResultCard.svelte';
   import SongsterrPreview from './SongsterrPreview.svelte';
   import type { SongsterrSong } from '$lib/types';
@@ -59,15 +59,51 @@
     selectSong(song);
   }
 
-  function handleLoad(e: CustomEvent<{ song: SongsterrSong; bytes: Uint8Array }>) {
-    loadFromBytes(e.detail.bytes);
-    setCurrentSongsterr(e.detail.song, e.detail.bytes);
+  function finishLoad(song: SongsterrSong, bytes: Uint8Array) {
+    loadFromBytes(bytes);
+    setCurrentSongsterr(song, bytes);
     dispatch('close');
     resetSongsterr();
   }
 
+  function handleLoad(e: CustomEvent<{ song: SongsterrSong; bytes: Uint8Array }>) {
+    finishLoad(e.detail.song, e.detail.bytes);
+  }
+
   function handleBackdropClick() {
     dispatch('close');
+  }
+
+  // ── Keyboard navigation: Arrow Up/Down to move selection, Enter to load ───
+  async function moveSelection(delta: number) {
+    const { results, selected } = $songsterrStore;
+    if (results.length === 0) return;
+
+    const currentIndex = selected ? results.findIndex(r => r.id === selected.id) : -1;
+    const nextIndex = Math.min(Math.max(currentIndex + delta, 0), results.length - 1);
+    const nextSong = results[nextIndex];
+    if (nextSong.id === selected?.id) return;
+
+    selectSong(nextSong);
+
+    await tick();
+    scrollContainer
+      ?.querySelector(`[data-song-id="${nextSong.id}"]`)
+      ?.scrollIntoView({ block: 'nearest' });
+  }
+
+  async function handleEnterLoad() {
+    const song = $songsterrStore.selected;
+    if (!song) return;
+    if (['loading', 'restricted', 'unpublished'].includes(song.restrictionStatus ?? '')) return;
+    if ($songsterrStore.isFetching) return;
+
+    try {
+      const bytes = await fetchTabBytes(song.id);
+      finishLoad(song, bytes);
+    } catch {
+      // Error is already stored in songsterrStore
+    }
   }
 </script>
 
@@ -118,6 +154,15 @@
                 if ((e.key === 'a' || e.key === 'A') && (e.ctrlKey || e.metaKey)) {
                   e.preventDefault();
                   e.currentTarget.select();
+                } else if (e.key === 'ArrowDown') {
+                  e.preventDefault();
+                  moveSelection(1);
+                } else if (e.key === 'ArrowUp') {
+                  e.preventDefault();
+                  moveSelection(-1);
+                } else if (e.key === 'Enter') {
+                  e.preventDefault();
+                  handleEnterLoad();
                 }
               }}
               spellcheck="false"
@@ -173,7 +218,11 @@
           {:else}
             <div class="results-list">
               {#each $songsterrStore.results as song, i (song.id)}
-                <div style="animation-delay: {Math.min(i, 10) * 30}ms" class="result-animate">
+                <div
+                  data-song-id={song.id}
+                  style="animation-delay: {Math.min(i, 10) * 30}ms"
+                  class="result-animate"
+                >
                   <SongsterrResultCard
                     {song}
                     active={$songsterrStore.selected?.id === song.id}
