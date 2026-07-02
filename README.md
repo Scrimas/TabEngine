@@ -36,6 +36,9 @@ Found a bug or something feels broken? Open an issue. Want to fix it yourself? P
 
 ## Installation notes
 
+> [!WARNING]
+> **The GitHub-prebuilt binaries are currently broken.** Until this is fixed, please build and run from source (see [Building from source](#building-from-source)) — the dev build is fully functional.
+
 Prebuilt binaries (Windows, macOS, Linux) are attached to each [release](../../releases). They're built by GitHub Actions and are **unsigned** — I don't pay for a Windows code-signing certificate or an Apple developer account ($99/year), so your OS will flag the app as coming from an unverified developer. This is expected; here's how to get past it:
 
 - **Windows (`.exe`)** — SmartScreen will show "Windows protected your PC." Click **More info** → **Run anyway**.
@@ -54,6 +57,8 @@ Prebuilt binaries (Windows, macOS, Linux) are attached to each [release](../../r
 npm install        # installs deps, also copies alphaTab's runtime assets into public/
 npm run tauri dev   # starts the real app: Vite + the Tauri window
 ```
+
+^ Use this until the Github binaries are fixed.
 
 A few other scripts, if you need them:
 
