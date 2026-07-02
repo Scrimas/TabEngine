@@ -14,9 +14,11 @@
   } from '$lib/alphatab/AlphaTabManager';
 
   import { open as tauriOpen } from '@tauri-apps/plugin-dialog';
-  import { join } from '@tauri-apps/api/path';
   import { invoke } from '@tauri-apps/api/core';
-  import { libraryStore, recordOpen, importFileToLibrary } from '$lib/stores/library';
+  import {
+    libraryStore, recordOpen, importFileToLibrary,
+    resolveLibraryDir, saveBytesToLibrary,
+  } from '$lib/stores/library';
   import { settingsStore, updateSettings } from '$lib/stores/settings';
   import type { LibraryEntry } from '$lib/types';
 
@@ -86,18 +88,19 @@
 
     try {
       // Default to the XDG app data dir (~/.local/share/tabengine) if no library dir set
-      let destDir = $settingsStore.libraryDir;
-      if (!destDir) {
-        destDir = await invoke<string>('get_app_data_dir');
-      }
+      const destDir = await resolveLibraryDir();
+      if (!destDir) throw new Error('Could not resolve a library directory.');
 
-      const filename = `${song.artist.name} - ${song.title}.gp5`.replace(/[<>:"/\\|?*]/g, '_');
-      const selected = await join(destDir, filename);
+      // Mirror the Rust validate_file_stem rules: strip separator/Windows-invalid
+      // and control characters, then trailing dots/spaces, so the save can't be
+      // rejected by the backend validation.
+      const stem = `${song.artist.name} - ${song.title}`
+        .replace(/[<>:"/\\|?*\u0000-\u001F\u007F]/g, '_')
+        .trim()
+        .replace(/[.\s]+$/, '') || 'Songsterr Tab';
 
-      // save_gp_file creates parent dirs automatically
-      await invoke('save_gp_file', { path: selected, bytes: Array.from(bytes) });
-
-      const meta: LibraryEntry = await invoke('file_metadata', { path: selected });
+      // Collision-safe: never silently overwrites an existing library file
+      const meta = await saveBytesToLibrary(destDir, `${stem}.gp5`, bytes);
       recordOpen(meta);
     } catch (err) {
       console.error('[App] Quick save file error:', err);

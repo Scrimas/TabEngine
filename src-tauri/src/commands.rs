@@ -9,7 +9,8 @@
 
 use serde::{Deserialize, Serialize};
 use std::fs;
-use std::path::Path;
+use std::io::Write;
+use std::path::{Path, PathBuf};
 use tauri::AppHandle;
 use tauri::Manager;
 
@@ -96,6 +97,58 @@ pub async fn save_gp_file(path: String, bytes: Vec<u8>) -> Result<(), String> {
     fs::write(&path, bytes).map_err(|e| format!("Failed to save tab file to '{}': {}", path, e))
 }
 
+/// Save `bytes` into `dest_dir` under `filename` without clobbering existing
+/// files: a name whose content is already identical is reused (re-download of
+/// the same tab), other collisions fall back to a "name (1).ext" suffix.
+/// Returns the entry for the file written or reused.
+#[tauri::command]
+pub async fn save_gp_file_to_dir(
+    dest_dir: String,
+    filename: String,
+    bytes: Vec<u8>,
+) -> Result<LibraryEntry, String> {
+    if filename.contains('/') || filename.contains('\\') {
+        return Err("File name cannot contain path separators.".to_string());
+    }
+    let file = Path::new(&filename);
+    ensure_gp_path(file)?;
+    if let Some(stem) = file.file_stem().and_then(|s| s.to_str()) {
+        validate_file_stem(stem)?;
+    }
+    let dest = write_unique(Path::new(&dest_dir), &filename, &bytes)?;
+    build_entry(&dest).map_err(|e| e.to_string())
+}
+
+/// Copy an external Guitar Pro file into `dest_dir` (the library). Returns the
+/// existing entry unchanged when the file already lives inside `dest_dir` —
+/// compared via canonicalized paths so symlinked or non-normalized library
+/// locations are recognised. Collisions are handled like `save_gp_file_to_dir`.
+#[tauri::command]
+pub async fn import_gp_file(src_path: String, dest_dir: String) -> Result<LibraryEntry, String> {
+    let src = Path::new(&src_path);
+    ensure_gp_path(src)?;
+    let dir = Path::new(&dest_dir);
+
+    if let (Ok(csrc), Ok(cdir)) = (fs::canonicalize(src), fs::canonicalize(dir)) {
+        if csrc.starts_with(&cdir) {
+            return build_entry(src).map_err(|e| e.to_string());
+        }
+    }
+
+    let bytes = fs::read(src).map_err(|e| format!("Failed to read '{}': {}", src_path, e))?;
+
+    let stem = src.file_stem().and_then(|s| s.to_str()).unwrap_or("");
+    let ext = src
+        .extension()
+        .and_then(|e| e.to_str())
+        .unwrap_or("gp5")
+        .to_lowercase();
+    let filename = format!("{}.{}", sanitize_file_stem(stem), ext);
+
+    let dest = write_unique(dir, &filename, &bytes)?;
+    build_entry(&dest).map_err(|e| e.to_string())
+}
+
 /// Rename a Guitar Pro file on disk and return the updated library entry.
 /// The new path uses the same directory and extension as the original.
 #[tauri::command]
@@ -180,6 +233,66 @@ fn is_same_file(a: &Path, b: &Path) -> bool {
         (Ok(ca), Ok(cb)) => ca == cb,
         _ => false,
     }
+}
+
+/// Best-effort rewrite of an arbitrary stem into one that passes
+/// `validate_file_stem` — used for imported filenames we don't control.
+fn sanitize_file_stem(raw: &str) -> String {
+    let cleaned: String = raw
+        .chars()
+        .map(|c| {
+            if matches!(c, '<' | '>' | ':' | '"' | '|' | '?' | '*' | '/' | '\\') || c.is_control()
+            {
+                '_'
+            } else {
+                c
+            }
+        })
+        .collect();
+    let cleaned = cleaned.trim().trim_end_matches(['.', ' ']);
+    if cleaned.is_empty() {
+        "imported tab".to_string()
+    } else {
+        cleaned.to_string()
+    }
+}
+
+/// Create a file for `bytes` in `dest_dir` without clobbering. `create_new`
+/// makes the existence check and the creation one atomic operation (no
+/// check-then-write race); an existing file with identical content is reused,
+/// and other name collisions fall back to a "name (1).ext" suffix.
+fn write_unique(dest_dir: &Path, filename: &str, bytes: &[u8]) -> Result<PathBuf, String> {
+    fs::create_dir_all(dest_dir)
+        .map_err(|e| format!("Failed to create directory '{}': {}", dest_dir.display(), e))?;
+
+    let file = Path::new(filename);
+    let stem = file.file_stem().and_then(|s| s.to_str()).unwrap_or(filename);
+    let ext = file.extension().and_then(|e| e.to_str()).unwrap_or("gp5");
+
+    for i in 0..100 {
+        let candidate = if i == 0 {
+            filename.to_string()
+        } else {
+            format!("{} ({}).{}", stem, i, ext)
+        };
+        let dest = dest_dir.join(&candidate);
+
+        match fs::OpenOptions::new().write(true).create_new(true).open(&dest) {
+            Ok(mut f) => {
+                f.write_all(bytes)
+                    .map_err(|e| format!("Failed to save '{}': {}", dest.display(), e))?;
+                return Ok(dest);
+            }
+            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
+                // Name taken — reuse the existing file if the content matches.
+                if fs::read(&dest).map(|existing| existing == bytes).unwrap_or(false) {
+                    return Ok(dest);
+                }
+            }
+            Err(e) => return Err(format!("Failed to save '{}': {}", dest.display(), e)),
+        }
+    }
+    Err(format!("Too many files named '{}' in the library.", stem))
 }
 
 fn is_gp_file(path: &Path) -> bool {

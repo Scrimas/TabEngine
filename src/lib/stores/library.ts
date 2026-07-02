@@ -100,33 +100,45 @@ export function renameEntry(oldPath: string, newEntry: LibraryEntry): void {
 }
 
 import { invoke } from '@tauri-apps/api/core';
-import { join } from '@tauri-apps/api/path';
 import { get } from 'svelte/store';
 import { settingsStore } from './settings';
+
+/** Resolve the library directory: the configured one, or the app data dir. */
+export async function resolveLibraryDir(): Promise<string | null> {
+  const configured = get(settingsStore).libraryDir;
+  if (configured) return configured;
+  try {
+    return await invoke<string>('get_app_data_dir');
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Save `bytes` under `filename` in `destDir` without clobbering existing
+ * files. Collision handling (reuse when the content is identical, otherwise
+ * a "name (1).ext" style suffix) happens atomically in Rust. Returns the
+ * library entry for the file actually written/reused.
+ */
+export async function saveBytesToLibrary(
+  destDir: string,
+  filename: string,
+  bytes: Uint8Array,
+): Promise<LibraryEntry> {
+  return invoke<LibraryEntry>('save_gp_file_to_dir', {
+    destDir,
+    filename,
+    bytes: Array.from(bytes),
+  });
+}
 
 /** Copy an external file into the app's library directory if it's not already there */
 export async function importFileToLibrary(path: string): Promise<string> {
   try {
-    let destDir = get(settingsStore).libraryDir;
-    if (!destDir) {
-      destDir = await invoke<string>('get_app_data_dir');
-    }
+    const destDir = await resolveLibraryDir();
     if (!destDir) return path;
-
-    const cleanPath = path.replace(/\\/g, '/');
-    const cleanDest = destDir.replace(/\\/g, '/');
-
-    if (cleanPath.toLowerCase().startsWith(cleanDest.toLowerCase())) {
-      return path;
-    }
-
-    const filename = path.split(/[/\\]/).pop() || 'imported_tab.gp';
-    const destPath = await join(destDir, filename);
-
-    const bytes: number[] = await invoke('read_gp_file', { path });
-    await invoke('save_gp_file', { path: destPath, bytes: Array.from(bytes) });
-
-    return destPath;
+    const entry = await invoke<LibraryEntry>('import_gp_file', { srcPath: path, destDir });
+    return entry.path;
   } catch (err) {
     console.error('[LibraryStore] Failed to import file to library:', err);
     return path;

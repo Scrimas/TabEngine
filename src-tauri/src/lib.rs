@@ -19,6 +19,8 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             commands::read_gp_file,
             commands::save_gp_file,
+            commands::save_gp_file_to_dir,
+            commands::import_gp_file,
             commands::get_app_data_dir,
             commands::scan_directory_for_gp,
             commands::file_metadata,
