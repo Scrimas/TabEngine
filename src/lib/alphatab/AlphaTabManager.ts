@@ -177,6 +177,13 @@ export function initAlphaTab(container: HTMLElement): void {
   // track pills toolbar above the score).
   api.settings.notation.elements.set(ne.TrackNames, false);
 
+  // Push all post-construction settings mutations (theme colours above, the
+  // notation.elements toggles) to the render worker. The worker only receives
+  // a settings snapshot at construction and on explicit updateSettings() —
+  // in-place mutations of api.settings are invisible to it, unlike the old
+  // main-thread renderer which shared the object by reference.
+  api.updateSettings();
+
   // ── Event wiring ───────────────────────────────────────────────────────────
 
   // 1. SoundFont load progress
