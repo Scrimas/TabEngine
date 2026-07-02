@@ -184,7 +184,10 @@ export function initAlphaTab(container: HTMLElement): void {
       name:      track.name      || `Track ${i + 1}`,
       shortName: track.shortName || `T${i + 1}`,
       color:     TRACK_COLORS[i % TRACK_COLORS.length],
-      volume:    16,
+      // Seed from the file-authored level (0–16) — alphaTab initialises each
+      // channel to playbackInfo.volume/16, so a constant here would desync the
+      // fader from what's actually playing.
+      volume:    Math.max(0, Math.min(16, track.playbackInfo.volume)),
       pan:       0,
       muted:     false,
       soloed:    false,
@@ -313,11 +316,12 @@ export function setThemeSettings(theme: 'parchment' | 'dark'): void {
 
 // ── Mixer controls ────────────────────────────────────────────────────────────
 
-/** Change volume for one track. `volume` is alphaTab's 0–16 scale. */
+/** Change volume for one track. `volume` is the UI's 0–16 scale (GP file model);
+ *  alphaTab's changeTrackVolume expects a 0–1 multiplier, so divide by 16. */
 export function setTrackVolume(trackIndex: number, volume: number): void {
   if (!api?.score) return;
   const track = api.score.tracks[trackIndex];
-  if (track) api.changeTrackVolume([track], Math.max(0, Math.min(16, volume)));
+  if (track) api.changeTrackVolume([track], Math.max(0, Math.min(16, volume)) / 16);
 }
 
 /** Mute / unmute a single track. */
