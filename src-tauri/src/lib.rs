@@ -48,6 +48,7 @@ pub fn run() {
             songsterr::songsterr_search,
             songsterr::songsterr_fetch_tab,
             songsterr::songsterr_check_restriction,
+            songsterr::songsterr_fetch_url,
         ])
 
         // ── Window setup ──────────────────────────────────────────────────

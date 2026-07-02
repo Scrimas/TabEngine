@@ -321,3 +321,24 @@ pub async fn songsterr_check_restriction(song_id: u64) -> Result<String, String>
         _ => Ok("restricted".to_string()),
     }
 }
+
+/// Fetch raw body of a URL as a String to bypass CORS (generic helper).
+#[tauri::command]
+pub async fn songsterr_fetch_url(url: String) -> Result<String, String> {
+    let client = build_client()?;
+    let response = client
+        .get(&url)
+        .send()
+        .await
+        .map_err(|e| format!("Failed to request URL: {}", e))?;
+
+    if !response.status().is_success() {
+        return Err(format!("Request returned HTTP {}", response.status()));
+    }
+
+    response
+        .text()
+        .await
+        .map_err(|e| format!("Failed to read response body: {}", e))
+}
+
