@@ -61,6 +61,9 @@
   }
 
   // ── Settings sync ─────────────────────────────────────────────────────────────
+  // This block fires on every settings write (e.g. once per step while dragging
+  // the metronome-volume slider); setThemeSettings itself skips unchanged themes
+  // so no full score re-render is triggered here.
   $: {
     const s = $settingsStore;
     if (typeof document !== 'undefined') {

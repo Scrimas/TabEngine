@@ -124,6 +124,7 @@ export function initAlphaTab(container: HTMLElement): void {
   // strings. Setting Color instances here guarantees correct rendering on first
   // api.load() regardless of whether the JSON constructor path succeeded.
   applyThemeColors(api, isDark);
+  appliedTheme = isDark ? 'dark' : 'parchment';
 
   // Disable wide-vibrato elements and slight beat vibratos (angular VVVV zigzag)
   // to prevent double notation and only show the smooth staff-level waves.
@@ -307,8 +308,13 @@ function applyThemeColors(target: alphaTab.AlphaTabApi, dark: boolean): void {
   }
 }
 
+// Last theme actually applied to the api — a repeated call with the same theme
+// must not trigger updateSettings/render, which is a full score re-render.
+let appliedTheme: 'parchment' | 'dark' | null = null;
+
 export function setThemeSettings(theme: 'parchment' | 'dark'): void {
-  if (!api) return;
+  if (!api || theme === appliedTheme) return;
+  appliedTheme = theme;
   applyThemeColors(api, theme === 'dark');
   api.updateSettings();
   api.render();
@@ -557,8 +563,9 @@ export function loadFromBytes(bytes: Uint8Array): void {
 
 export function destroyAlphaTab(): void {
   api?.destroy();
-  api        = null;
-  viewportEl = null;
+  api          = null;
+  viewportEl   = null;
+  appliedTheme = null;
 }
 
 // ── Loop bounds (for drag-resize handles) ─────────────────────────────────────
