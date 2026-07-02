@@ -297,6 +297,20 @@
     {/if}
   </div>
 
+  <!-- Import hint -->
+  <div class="import-hint">
+    <div class="import-hint-chip">
+      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+           stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <path d="M12 15V3m0 0L8 7m4-4l4 4"/>
+        <path d="M4 15v4a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-4"/>
+      </svg>
+      <span>Drag &amp; drop</span>
+      <span class="hint-sep">·</span>
+      <kbd>Ctrl</kbd><span class="hint-plus">+</span><kbd>O</kbd>
+    </div>
+  </div>
+
   <!-- Context menu -->
   {#if contextMenu}
     <!-- svelte-ignore a11y-click-events-have-key-events a11y-no-static-element-interactions -->
@@ -591,6 +605,44 @@
   .rename-btn:hover {
     background: var(--bg-hover);
     color: var(--accent);
+  }
+
+  /* Import hint */
+  .import-hint {
+    flex-shrink: 0;
+    display: flex;
+    justify-content: center;
+    padding: 10px 14px 12px;
+  }
+  .import-hint-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 12px;
+    border-radius: var(--radius);
+    background: var(--bg-elevated);
+    border: 1px solid var(--border);
+    box-shadow: 0 0 20px var(--accent-dim), 0 0 8px var(--accent-dim);
+    color: var(--text-muted);
+    font-size: 10.5px;
+    white-space: nowrap;
+  }
+  .hint-sep {
+    color: var(--border-hover);
+  }
+  .hint-plus {
+    font-size: 9px;
+    color: var(--text-muted);
+  }
+  .import-hint kbd {
+    font-family: var(--font-mono);
+    font-size: 9.5px;
+    font-weight: 600;
+    padding: 1px 5px;
+    border-radius: 4px;
+    background: var(--bg-hover);
+    border: 1px solid var(--border-hover);
+    color: var(--text-secondary);
   }
 
   /* Context menu */
