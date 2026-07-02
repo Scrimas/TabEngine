@@ -6,7 +6,6 @@
   "permissions": [
     "core:default",
     "dialog:allow-open",
-    "dialog:allow-save",
     "dialog:allow-message",
     "shell:allow-open",
     "core:window:allow-minimize",

@@ -14,7 +14,11 @@
   },
   "dependencies": {
     "@coderline/alphatab": "^1.3.0",
+    "@fontsource/cormorant-garamond": "^5.2.11",
+    "@fontsource/hanken-grotesk": "^5.2.8",
+    "@fontsource/instrument-serif": "^5.2.8",
     "@fontsource/inter": "^5.0.16",
+    "@fontsource/jetbrains-mono": "^5.2.8",
     "@tauri-apps/api": "^2.5.0",
     "@tauri-apps/plugin-dialog": "^2.2.1",
     "@tauri-apps/plugin-fs": "^2.3.0",

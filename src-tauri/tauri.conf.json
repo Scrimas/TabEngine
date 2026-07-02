@@ -29,7 +29,7 @@
     ],
 
     "security": {
-      "csp": "default-src 'self' tauri: asset: https://ipc.localhost; worker-src 'self' blob:; script-src 'self' 'unsafe-eval' blob:; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; media-src 'self' blob: data:; img-src 'self' data: blob:; connect-src 'self' ipc: http://ipc.localhost tauri: asset: https://ipc.localhost https://www.songsterr.com https://gp.songsterr.com https://d12drcwhcokzqv.cloudfront.net; font-src 'self' data: https://fonts.gstatic.com"
+      "csp": "default-src 'self' tauri: asset: https://ipc.localhost; worker-src 'self' blob:; script-src 'self' 'unsafe-eval' blob:; style-src 'self' 'unsafe-inline'; media-src 'self' blob: data:; img-src 'self' data: blob:; connect-src 'self' ipc: http://ipc.localhost tauri: asset: https://ipc.localhost; font-src 'self' data:"
     }
   },
 
