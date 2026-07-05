@@ -46,6 +46,7 @@ import type { TrackState, LoopHighlightBounds } from '$lib/types';
 import { get } from 'svelte/store';
 import { playerStore } from '$lib/stores/player';
 import { settingsStore } from '$lib/stores/settings';
+import { getInstrumentName } from '$lib/utils/generalMidi';
 
 // ── Singleton state ───────────────────────────────────────────────────────────
 
@@ -260,10 +261,11 @@ export function initAlphaTab(container: HTMLElement): void {
     updatePlayer({ tempo: score.tempo });
 
     const tracks: TrackState[] = score.tracks.map((track, i) => ({
-      index:     i,
-      name:      track.name      || `Track ${i + 1}`,
-      shortName: track.shortName || `T${i + 1}`,
-      color:     TRACK_COLORS[i % TRACK_COLORS.length],
+      index:      i,
+      name:       track.name      || `Track ${i + 1}`,
+      shortName:  track.shortName || `T${i + 1}`,
+      instrument: getInstrumentName(track.playbackInfo.program, track.isPercussion),
+      color:      TRACK_COLORS[i % TRACK_COLORS.length],
       // Seed from the file-authored level (0–16) — alphaTab initialises each
       // channel to playbackInfo.volume/16, so a constant here would desync the
       // fader from what's actually playing.

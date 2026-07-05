@@ -213,7 +213,7 @@
           title={track.name}
         >
           <span class="tab-dot" style="background:{track.color};{selectedTrackIndex !== track.index ? 'opacity:.4' : ''}"></span>
-          {track.name}
+          {track.instrument}
         </button>
       {/each}
     </div>

@@ -61,15 +61,16 @@ export const DEFAULT_PLAYER_STATE: PlayerState = {
 // ── Tracks / Mixer ────────────────────────────────────────────────────────────
 
 export interface TrackState {
-  index:     number;
-  name:      string;
-  shortName: string;
-  color:     string;   // hex accent color per track
-  volume:    number;   // 0–16 (alphaTab's internal scale)
-  pan:       number;   // -1.0 to 1.0
-  muted:     boolean;
-  soloed:    boolean;
-  tuning:    number[]; // MIDI note numbers, top string (highest pitch) first; empty if not stringed
+  index:      number;
+  name:       string;
+  shortName:  string;
+  instrument: string; // General MIDI instrument name (or "Percussion")
+  color:      string;   // hex accent color per track
+  volume:     number;   // 0–16 (alphaTab's internal scale)
+  pan:        number;   // -1.0 to 1.0
+  muted:      boolean;
+  soloed:     boolean;
+  tuning:     number[]; // MIDI note numbers, top string (highest pitch) first; empty if not stringed
 }
 
 // ── Library ───────────────────────────────────────────────────────────────────
