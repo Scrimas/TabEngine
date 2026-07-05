@@ -320,6 +320,54 @@ export function initAlphaTab(container: HTMLElement): void {
     updatePlayer({ loopHighlight: projectLoopHighlight(e) });
   });
 
+  // 10. Plain-click behavior while looping is enabled — "if the loop button
+  //     is enabled, there's always a loop". alphaTab's own click handling
+  //     (_onBeatMouseUp -> applyPlaybackRangeFromHighlight with no
+  //     selectionEnd) always seeks tickPosition to the clicked beat AND
+  //     clears playbackRange, since a plain click looks identical to a
+  //     zero-length selection. We let the seek stand but override the
+  //     clearing: a click inside the active loop just moves the playhead
+  //     there (loop keeps playing), a click outside it moves the loop to
+  //     wrap the clicked bar instead of leaving playback loop-less.
+  //     Distinguishing a real click-drag (drawing a brand new selection,
+  //     already supported natively) from a plain click uses the beat seen
+  //     on beatMouseDown vs any beat seen on beatMouseMove.
+  let clickBeat: alphaTab.model.Beat | null = null;
+  let clickRange: alphaTab.AlphaTabApi['playbackRange'] = null;
+  let didDrag = false;
+  api.beatMouseDown.on((beat) => {
+    clickBeat  = beat;
+    clickRange = api!.playbackRange;
+    didDrag    = false;
+  });
+  api.beatMouseMove.on((beat) => {
+    if (clickBeat && beat !== clickBeat) didDrag = true;
+  });
+  api.beatMouseUp.on((beat) => {
+    const clicked      = beat ?? clickBeat;
+    const rangeAtDown   = clickRange;
+    const wasDrag       = didDrag;
+    clickBeat  = null;
+    clickRange = null;
+    didDrag    = false;
+    if (wasDrag || !clicked || !api || !get(playerStore).isLooping) return;
+
+    const clickTick = clicked.absolutePlaybackStart;
+    if (rangeAtDown && clickTick >= rangeAtDown.startTick && clickTick <= rangeAtDown.endTick) {
+      // Inside the active loop — undo alphaTab's clear, keep the loop as-is.
+      // The underlying AlphaSynth.playbackRange setter unconditionally seeks
+      // tickPosition to the range's OWN start whenever it's assigned (even
+      // when reassigning the same range) — save/restore the click's seek
+      // around it or the playhead snaps back to the loop's beginning.
+      const seekTick = api.tickPosition;
+      api.playbackRange = rangeAtDown;
+      api.tickPosition = seekTick;
+      return;
+    }
+    // Outside the active loop — move it to wrap the clicked bar.
+    applyBarLoop(api, clicked.voice.bar);
+  });
+
   console.info('[AlphaTabManager] Initialised successfully.');
 }
 
@@ -542,11 +590,8 @@ export function setLooping(enabled: boolean): void {
   if (!api) return;
   if (enabled) {
     if (!api.playbackRange) {
-      const beats = defaultLoopBeats();
-      if (beats) {
-        api.highlightPlaybackRange(beats.startBeat, beats.endBeat);
-        api.applyPlaybackRangeFromHighlight();
-      }
+      const bar = defaultLoopBar();
+      if (bar) applyBarLoop(api, bar);
     }
     api.isLooping = true;
     updatePlayer({ isLooping: true });
@@ -555,6 +600,26 @@ export function setLooping(enabled: boolean): void {
     forceClearLoopSelection();
     updatePlayer({ isLooping: false, loopHighlight: null });
   }
+}
+
+/**
+ * api.applyPlaybackRangeFromHighlight() always seeks playback to the new
+ * range's start tick — correct for a brand-new drag-to-select, but not for
+ * seeding the loop button's default range (which should wrap the CURRENT bar
+ * without yanking playback back to its start) or for resizing an
+ * already-active loop's end handle (which restarted the loop from the
+ * beginning on every drag update instead of leaving playback where it was).
+ * Save and restore tickPosition around the call so it only ever changes the
+ * range, never the transport position.
+ */
+function applyHighlightPreservingPosition(api: alphaTab.AlphaTabApi): void {
+  const tick = api.tickPosition;
+  try {
+    api.applyPlaybackRangeFromHighlight();
+  } catch (err) {
+    console.warn('[AlphaTabManager] applyPlaybackRangeFromHighlight failed', err);
+  }
+  api.tickPosition = tick;
 }
 
 /**
@@ -587,12 +652,72 @@ function forceClearLoopSelection(): void {
 /** First/last beat of the bar under the current playback cursor, for the
  *  currently visible track — used to seed a loop range with no prior
  *  selection. Returns null if the score/track/bar data isn't available. */
-function defaultLoopBeats(): { startBeat: alphaTab.model.Beat; endBeat: alphaTab.model.Beat } | null {
+function defaultLoopBar(): alphaTab.model.Bar | null {
   if (!api?.score) return null;
   const track = api.score.tracks[visibleTrackIndices[0] ?? 0];
-  const beats = track?.staves[0]?.bars[currentBarIndex()]?.voices[0]?.beats;
+  return track?.staves[0]?.bars[currentBarIndex()] ?? null;
+}
+
+/**
+ * Resolve the (startBeat, endBeat) pair to loop the given bar, plus the
+ * exact tick range to actually play.
+ *
+ * A bar with only ONE beat (most commonly a whole-bar rest — i.e. an "empty"
+ * bar) breaks alphaTab's own range machinery: `applyPlaybackRangeFromHighlight`
+ * treats identical start/end beats as "no selection" and clears
+ * `playbackRange` instead of creating one, and `_cursorSelectRange` (the
+ * native highlight painter) early-returns the same way — so looping an
+ * empty/single-beat bar silently did nothing. Borrowing the next bar's first
+ * beat as the highlight's end gives alphaTab two genuinely different beats
+ * to draw a highlight between; the actual tick range is always computed
+ * directly from THIS bar's own beat(s), so playback never bleeds into the
+ * next bar regardless of which beat was used for the visual.
+ */
+function loopBeatsForBar(bar: alphaTab.model.Bar): {
+  startBeat: alphaTab.model.Beat;
+  endBeat:   alphaTab.model.Beat;
+  startTick: number;
+  endTick:   number;
+} | null {
+  const beats = bar.voices[0]?.beats;
   if (!beats?.length) return null;
-  return { startBeat: beats[0], endBeat: beats[beats.length - 1] };
+  const first = beats[0];
+  const last  = beats[beats.length - 1];
+  const startTick = first.absolutePlaybackStart;
+  const endTick   = last.absolutePlaybackStart + last.playbackDuration - 50;
+  if (first !== last) return { startBeat: first, endBeat: last, startTick, endTick };
+  const nextFirstBeat = bar.nextBar?.voices[0]?.beats[0];
+  return { startBeat: first, endBeat: nextFirstBeat ?? first, startTick, endTick };
+}
+
+/** Set the loop range/highlight to exactly wrap `bar`, preserving whatever
+ *  the transport position currently is (see applyHighlightPreservingPosition
+ *  for why that needs care — this also bypasses its beat-highlight-driven
+ *  tick math, since that's exactly what breaks on single-beat bars). */
+function applyBarLoop(api: alphaTab.AlphaTabApi, bar: alphaTab.model.Bar): void {
+  const resolved = loopBeatsForBar(bar);
+  if (!resolved) return;
+  const { startBeat, endBeat, startTick, endTick } = resolved;
+  const tick = api.tickPosition;
+  try {
+    api.highlightPlaybackRange(startBeat, endBeat);
+  } catch (err) {
+    // The visual highlight can fail under alphaTab's lazy rendering — e.g.
+    // loopBeatsForBar borrows the NEXT bar's first beat for single-beat
+    // bars, and that bar's bounds may not exist yet if it hasn't scrolled
+    // into view. The actual loop range below is computed independently and
+    // must still apply — the only casualty of this failing is the handles
+    // not showing for this particular update, not the loop itself.
+    console.warn('[AlphaTabManager] applyBarLoop: highlightPlaybackRange failed, loop range still applied', err);
+    // Leave no stale handles behind at the OLD bar's position — hide them
+    // cleanly instead, since playbackRangeHighlightChanged never fired to
+    // update loopHighlight itself.
+    loopStartBeat = null;
+    loopEndBeat   = null;
+    updatePlayer({ loopHighlight: null });
+  }
+  api.playbackRange = { startTick, endTick };
+  api.tickPosition = tick;
 }
 
 /** Plain-object projection of a beat's canvas bounds for the store. Uses the
@@ -670,11 +795,8 @@ export function dragLoopHandle(which: 'start' | 'end', beat: alphaTab.model.Beat
 
 /** Commit the in-progress handle drag to the actual playback range. */
 export function commitLoopHandleDrag(): void {
-  try {
-    api?.applyPlaybackRangeFromHighlight();
-  } catch (err) {
-    console.warn('[AlphaTabManager] commitLoopHandleDrag: applyPlaybackRangeFromHighlight failed', err);
-  }
+  if (!api) return;
+  applyHighlightPreservingPosition(api);
 }
 
 /**
