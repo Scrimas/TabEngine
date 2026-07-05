@@ -490,7 +490,7 @@ export function setMasterVolume(pct: number): void {
 
 export function setPlaybackSpeed(speed: number): void {
   if (!api) return;
-  api.playbackSpeed = Math.max(0.25, Math.min(2.0, speed));
+  api.playbackSpeed = Math.max(0.1, Math.min(2.0, speed));
   updatePlayer({ playbackSpeed: api.playbackSpeed });
 }
 

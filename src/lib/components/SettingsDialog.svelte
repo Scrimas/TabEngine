@@ -83,24 +83,6 @@
         {#if activeTab === 'playback'}
           <section class="settings-section">
             <h2>Playback & Sound</h2>
-            
-            <div class="settings-row">
-              <div class="setting-label">
-                <span class="title">Metronome Volume</span>
-                <span class="desc">Adjust the volume of the tick count metronome.</span>
-              </div>
-              <div class="slider-control">
-                <input
-                  type="range"
-                  min="0"
-                  max="100"
-                  step="5"
-                  value={$settingsStore.metronomeVolume}
-                  on:input={(e) => updateSettings({ metronomeVolume: parseInt(e.currentTarget.value) })}
-                />
-                <span class="value-display">{$settingsStore.metronomeVolume}%</span>
-              </div>
-            </div>
 
             <div class="settings-row">
               <div class="setting-label">
@@ -317,27 +299,6 @@
   }
 
   /* ── Interactive Input Widgets ───────────────────────────────────────────── */
-  
-  /* Range Slider */
-  .slider-control {
-    display: flex !important;
-    align-items: center !important;
-    gap: 12px !important;
-  }
-
-  .slider-control input[type="range"] {
-    width: 140px !important;
-    accent-color: var(--accent) !important;
-    cursor: pointer !important;
-  }
-
-  .value-display {
-    font-size: 13px !important;
-    font-weight: 600 !important;
-    color: var(--text-primary) !important;
-    min-width: 36px !important;
-    text-align: right !important;
-  }
 
   /* Option pickers */
   .option-picker {

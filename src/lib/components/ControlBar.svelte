@@ -2,11 +2,12 @@
   import { createEventDispatcher } from 'svelte';
   import {
     stop, playPause,
-    setMetronomeEnabled,
+    setMetronomeEnabled, setPlaybackSpeed,
     seekToFraction, setLooping,
   } from '$lib/alphatab/AlphaTabManager';
   import { playerStore } from '$lib/stores/player';
   import { libraryStore } from '$lib/stores/library';
+  import { settingsStore, updateSettings } from '$lib/stores/settings';
   import { formatTime } from '$lib/types';
 
   const dispatch = createEventDispatcher<{ download: void }>();
@@ -36,6 +37,127 @@
   function triggerDownload() { dispatch('download'); }
 
   $: canPlay = $playerStore.isReady;
+
+  // Popovers are position:fixed and anchored via getBoundingClientRect() rather
+  // than CSS position:absolute — the control bar (and its ancestors) use
+  // overflow:hidden for layout clipping, which would otherwise clip/occlude an
+  // absolutely-positioned popover under sibling panels like the Mixer.
+  function anchoredStyle(el: HTMLElement): string {
+    const rect = el.getBoundingClientRect();
+    const bottom = window.innerHeight - rect.top + 10;
+    const right  = window.innerWidth - rect.right;
+    return `position: fixed; bottom: ${bottom}px; right: ${right}px;`;
+  }
+
+  // ── Metronome volume popover ──────────────────────────────────────────────
+  let showMetronomePopover = false;
+  let metronomePopoverStyle = '';
+  let metronomeAnchorEl: HTMLDivElement;
+  function toggleMetronomePopover() {
+    showTempoPopover = false;
+    showMetronomePopover = !showMetronomePopover;
+    if (showMetronomePopover) metronomePopoverStyle = anchoredStyle(metronomeAnchorEl);
+  }
+
+  // ── Tempo popover ("Compact strip" design) ─────────────────────────────────
+  const SPEED_MIN  = 10;   // % — matches setPlaybackSpeed's 0.1x clamp
+  const SPEED_MAX  = 200;  // % — matches setPlaybackSpeed's 2.0x clamp
+  const SPEED_STEP = 5;    // % — snap increment for drag / +- / keyboard
+  const SPEED_LABELED = [10, 25, 50, 75, 100, 125, 150, 175, 200];
+
+  function pctToLeft(pct: number): number {
+    return (pct - SPEED_MIN) / (SPEED_MAX - SPEED_MIN) * 100;
+  }
+  const SPEED_TICKS = (() => {
+    const out: { left: number; h: number; major: boolean }[] = [];
+    for (let v = SPEED_MIN; v <= SPEED_MAX; v += 5) {
+      const major = SPEED_LABELED.includes(v);
+      out.push({ left: pctToLeft(v), h: major ? 16 : 8, major });
+    }
+    return out;
+  })();
+  const SPEED_LABELS = SPEED_LABELED.map(v => ({ v, left: pctToLeft(v) }));
+
+  let showTempoPopover = false;
+  let tempoPopoverStyle = '';
+  let bpmBadgeEl: HTMLButtonElement;
+  function toggleTempoPopover() {
+    showMetronomePopover = false;
+    showTempoPopover = !showTempoPopover;
+    if (showTempoPopover) tempoPopoverStyle = anchoredStyle(bpmBadgeEl);
+  }
+
+  $: speedPct     = Math.round($playerStore.playbackSpeed * 100);
+  $: effectiveBpm = Math.round($playerStore.tempo * $playerStore.playbackSpeed);
+  $: rulerLeft    = pctToLeft(speedPct);
+
+  function snapToStep(pct: number): number {
+    return Math.round(pct / SPEED_STEP) * SPEED_STEP;
+  }
+  function applySpeedPct(pct: number, snap = false) {
+    const value = snap ? snapToStep(pct) : pct;
+    const clamped = Math.max(SPEED_MIN, Math.min(SPEED_MAX, value));
+    setPlaybackSpeed(clamped / 100);
+  }
+  function nudgeSpeedPct(delta: number) { applySpeedPct(speedPct + delta, true); }
+  function resetSpeed() { applySpeedPct(100); }
+
+  function onMetronomeVolumeInput(e: Event) {
+    updateSettings({ metronomeVolume: Number((e.target as HTMLInputElement).value) });
+  }
+  function onBpmInput(e: Event) {
+    const bpm = Number((e.currentTarget as HTMLInputElement).value);
+    if (!bpm || $playerStore.tempo <= 0) return;
+    applySpeedPct((bpm / $playerStore.tempo) * 100);
+  }
+
+  let draggingRuler = false;
+  function applyRulerPointer(e: PointerEvent, ruler: HTMLElement) {
+    const rect = ruler.getBoundingClientRect();
+    const frac = Math.min(1, Math.max(0, (e.clientX - rect.left) / rect.width));
+    applySpeedPct(SPEED_MIN + frac * (SPEED_MAX - SPEED_MIN), true);
+  }
+  function onRulerPointerDown(e: PointerEvent) {
+    const ruler = e.currentTarget as HTMLElement;
+    draggingRuler = true;
+    ruler.setPointerCapture?.(e.pointerId);
+    applyRulerPointer(e, ruler);
+  }
+  function onRulerPointerMove(e: PointerEvent) {
+    if (draggingRuler) applyRulerPointer(e, e.currentTarget as HTMLElement);
+  }
+  function onRulerPointerUp() { draggingRuler = false; }
+
+  // Attached to the popover container (not just the ruler) so +/- work as
+  // soon as the popover opens, without requiring an extra click to focus the
+  // ruler first. Ignores keydowns from the BPM input so typing e.g. "120"
+  // isn't hijacked by the '0' reset shortcut.
+  function onTempoKeydown(e: KeyboardEvent) {
+    if ((e.target as HTMLElement).tagName === 'INPUT') return;
+    // Arrow keys are reserved for scrubbing the playback position elsewhere in
+    // the app, so tempo stepping only responds to +/- (not arrows).
+    if (e.key === '+' || e.key === '=') {
+      e.preventDefault(); nudgeSpeedPct(SPEED_STEP);
+    } else if (e.key === '-' || e.key === '_') {
+      e.preventDefault(); nudgeSpeedPct(-SPEED_STEP);
+    } else if (e.key === '0') {
+      e.preventDefault(); resetSpeed();
+    }
+  }
+  function autofocus(node: HTMLElement) { node.focus(); }
+
+  // ── Shared popover dismissal ────────────────────────────────────────────────
+  function clickOutside(node: HTMLElement, onOutside: () => void) {
+    function handleClick(e: MouseEvent) {
+      if (!node.contains(e.target as Node)) onOutside();
+    }
+    document.addEventListener('mousedown', handleClick, true);
+    return {
+      destroy() { document.removeEventListener('mousedown', handleClick, true); },
+    };
+  }
+  function closeMetronomePopover() { showMetronomePopover = false; }
+  function closeTempoPopover()     { showTempoPopover = false; }
 </script>
 
 <footer class="control-bar" aria-label="Playback controls">
@@ -95,30 +217,130 @@
 
   <!-- Right controls -->
   <div class="right-ctrl">
-    <!-- BPM badge -->
-    <div class="bpm-badge" title="Tempo" aria-label="Tempo: {$playerStore.tempo} BPM">
-      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="var(--text-muted)"
-           stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-        <path d="M10 4h4l3 16H7z"/><line x1="12" y1="20" x2="15.5" y2="8"/>
-      </svg>
-      <span class="bpm-val">{$playerStore.tempo}</span>
-      <span class="bpm-unit">BPM</span>
+    <!-- BPM badge (opens tempo popover) -->
+    <div class="popover-anchor" use:clickOutside={closeTempoPopover}>
+      <button
+        class="bpm-badge"
+        class:active={showTempoPopover}
+        on:click={toggleTempoPopover}
+        bind:this={bpmBadgeEl}
+        title="Tempo"
+        aria-label="Tempo: {effectiveBpm} BPM"
+        aria-expanded={showTempoPopover}
+      >
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="var(--text-muted)"
+             stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M10 4h4l3 16H7z"/><line x1="12" y1="20" x2="15.5" y2="8"/>
+        </svg>
+        <span class="bpm-val">{effectiveBpm}</span>
+        <span class="bpm-unit">BPM</span>
+      </button>
+
+      {#if showTempoPopover}
+        <!-- svelte-ignore a11y-no-noninteractive-element-interactions -->
+        <div
+          class="popover tempo-popover"
+          style={tempoPopoverStyle}
+          tabindex="-1"
+          role="group"
+          aria-label="Tempo controls"
+          use:autofocus
+          on:keydown={onTempoKeydown}
+        >
+          <div class="strip-header">
+            <button class="strip-btn" on:click={() => nudgeSpeedPct(-SPEED_STEP)} aria-label="Decrease tempo">−</button>
+            <div class="strip-bpm">
+              <input
+                class="strip-bpm-input"
+                type="number"
+                min={Math.round($playerStore.tempo * SPEED_MIN / 100)}
+                max={Math.round($playerStore.tempo * SPEED_MAX / 100)}
+                value={effectiveBpm}
+                on:change={onBpmInput}
+                aria-label="Tempo in BPM"
+              />
+              <span class="strip-bpm-unit">bpm</span>
+              <span class="strip-bpm-song">/ {$playerStore.tempo}</span>
+            </div>
+            <button class="strip-btn" on:click={() => nudgeSpeedPct(SPEED_STEP)} aria-label="Increase tempo">+</button>
+            <div class="strip-spacer"></div>
+            <div class="strip-pct-chip">{speedPct}%</div>
+            <button class="strip-btn" on:click={resetSpeed} title="Reset to 100%" aria-label="Reset tempo to 100%">↺</button>
+          </div>
+
+          <div
+            class="strip-ruler"
+            role="slider"
+            aria-valuemin={SPEED_MIN}
+            aria-valuemax={SPEED_MAX}
+            aria-valuenow={speedPct}
+            aria-label="Playback speed percentage"
+            on:pointerdown={onRulerPointerDown}
+            on:pointermove={onRulerPointerMove}
+            on:pointerup={onRulerPointerUp}
+          >
+            <div class="strip-track"></div>
+            <div class="strip-track-fill" style="width:{rulerLeft}%"></div>
+            {#each SPEED_TICKS as tick}
+              <div class="strip-tick" class:major={tick.major} style="left:{tick.left}%; height:{tick.h}px;"></div>
+            {/each}
+            {#each SPEED_LABELS as label}
+              <div class="strip-tick-label" class:base={label.v === 100} style="left:{label.left}%">{label.v}</div>
+            {/each}
+            <div class="strip-thumb-pin" style="left:{rulerLeft}%"></div>
+            <div class="strip-thumb-dot" style="left:{rulerLeft}%"></div>
+          </div>
+        </div>
+      {/if}
     </div>
 
-    <!-- Metronome toggle -->
-    <button
-      class="icon-toggle"
-      class:active={$playerStore.metronomeEnabled}
-      on:click={toggleMetronome}
-      title="Metronome"
-      aria-pressed={$playerStore.metronomeEnabled}
-      aria-label="Metronome"
-    >
-      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-           stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-        <path d="M10 4h4l3 16H7z"/><line x1="12" y1="20" x2="15.5" y2="8"/>
-      </svg>
-    </button>
+    <!-- Metronome toggle + volume popover -->
+    <div class="popover-anchor metronome-group" use:clickOutside={closeMetronomePopover} bind:this={metronomeAnchorEl}>
+      <button
+        class="icon-toggle"
+        class:active={$playerStore.metronomeEnabled}
+        on:click={toggleMetronome}
+        title="Metronome"
+        aria-pressed={$playerStore.metronomeEnabled}
+        aria-label="Metronome"
+      >
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+             stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M10 4h4l3 16H7z"/><line x1="12" y1="20" x2="15.5" y2="8"/>
+        </svg>
+      </button>
+      <button
+        class="caret-btn"
+        class:active={showMetronomePopover}
+        on:click={toggleMetronomePopover}
+        title="Metronome volume"
+        aria-label="Metronome volume"
+        aria-expanded={showMetronomePopover}
+      >
+        <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+             stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M6 9l6 6 6-6"/>
+        </svg>
+      </button>
+
+      {#if showMetronomePopover}
+        <div class="popover volume-popover" style={metronomePopoverStyle}>
+          <span class="popover-title">Metronome Volume</span>
+          <div class="volume-row">
+            <input
+              type="range"
+              min="0"
+              max="100"
+              step="5"
+              value={$settingsStore.metronomeVolume}
+              on:input={onMetronomeVolumeInput}
+              aria-label="Metronome volume"
+            />
+            <span class="value-display">{$settingsStore.metronomeVolume}%</span>
+          </div>
+        </div>
+      {/if}
+    </div>
 
     <!-- Loop toggle -->
     <button
@@ -280,6 +502,12 @@
     border-radius: 9px;
     background: var(--bg-elevated);
     border: 1px solid var(--border);
+    cursor: pointer;
+    transition: background var(--transition), border-color var(--transition);
+  }
+  .bpm-badge:hover, .bpm-badge.active {
+    background: var(--accent-dim);
+    border-color: var(--accent-glow);
   }
   .bpm-val {
     font-family: var(--font-mono);
@@ -290,6 +518,246 @@
   .bpm-unit {
     font-size: 11px;
     color: var(--text-muted);
+  }
+
+  /* ── Popovers (tempo + metronome volume) ───────────────────────────────────── */
+  .popover-anchor {
+    position: relative;
+  }
+  .metronome-group {
+    display: flex;
+    align-items: center;
+    gap: 2px;
+  }
+  .caret-btn {
+    width: 18px;
+    height: 32px;
+    border-radius: 6px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    background: transparent;
+    border: 1px solid var(--border);
+    color: var(--text-secondary);
+    transition: background var(--transition), color var(--transition),
+                border-color var(--transition);
+  }
+  .caret-btn:hover {
+    background: var(--bg-hover);
+    color: var(--text-primary);
+    border-color: var(--border-hover);
+  }
+  .caret-btn.active {
+    background: var(--accent-dim);
+    color: var(--accent);
+    border-color: var(--accent-glow);
+  }
+
+  .popover {
+    /* position: fixed + inset are set inline (see anchoredStyle in <script>) so
+       the popover escapes the control bar's overflow:hidden clipping and paints
+       above sibling panels (e.g. the Mixer) instead of underneath them. */
+    background: var(--bg-elevated);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    box-shadow: var(--shadow);
+    padding: 14px 16px;
+    z-index: 1000;
+  }
+
+  /* Metronome volume popover */
+  .volume-popover {
+    width: 200px;
+  }
+  .popover-title {
+    display: block;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text-primary);
+    margin-bottom: 10px;
+  }
+  .volume-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  .volume-row input[type="range"] {
+    flex: 1;
+    accent-color: var(--accent);
+    cursor: pointer;
+  }
+  .value-display {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text-primary);
+    min-width: 32px;
+    text-align: right;
+  }
+
+  /* Tempo popover — "Compact strip" design: one-row header with % chip,
+     hanging ticks below the ruler, diamond pin thumb. */
+  .tempo-popover {
+    width: 340px;
+    padding: 16px 20px 14px;
+  }
+  .tempo-popover:focus {
+    /* Autofocused on open so +/- and 0 work immediately — not a
+       keyboard-navigated target, so the default focus ring is not useful. */
+    outline: none;
+  }
+
+  .strip-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .strip-btn {
+    width: 28px;
+    height: 28px;
+    flex-shrink: 0;
+    border-radius: 9px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: transparent;
+    border: 1px solid var(--border);
+    color: var(--text-secondary);
+    font-size: 15px;
+    line-height: 1;
+    cursor: pointer;
+    transition: background var(--transition), color var(--transition), border-color var(--transition);
+  }
+  .strip-btn:hover {
+    background: var(--bg-hover);
+    color: var(--text-primary);
+    border-color: var(--border-hover);
+  }
+
+  .strip-bpm {
+    display: flex;
+    align-items: baseline;
+    justify-content: center;
+    min-width: 100px;
+  }
+  .strip-bpm-input {
+    width: 4ch;
+    height: 24px;
+    padding: 0;
+    background: transparent;
+    border: none;
+    font-family: var(--font-mono);
+    font-size: 20px;
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+    color: var(--accent);
+    text-align: right;
+  }
+  .strip-bpm-input:focus {
+    outline: none;
+  }
+  .strip-bpm-input::-webkit-inner-spin-button,
+  .strip-bpm-input::-webkit-outer-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+  }
+  .strip-bpm-input[type="number"] {
+    appearance: textfield;
+    -moz-appearance: textfield;
+  }
+  .strip-bpm-unit {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text-secondary);
+    margin-left: 4px;
+  }
+  .strip-bpm-song {
+    font-size: 12px;
+    color: var(--text-muted);
+    margin-left: 4px;
+  }
+
+  .strip-spacer {
+    flex: 1;
+  }
+  .strip-pct-chip {
+    padding: 4px 11px;
+    border-radius: 99px;
+    background: var(--bg-hover);
+    border: 1px solid var(--border);
+    color: var(--accent);
+    font-weight: 700;
+    font-size: 13px;
+    white-space: nowrap;
+  }
+
+  .strip-ruler {
+    position: relative;
+    height: 86px;
+    margin-top: 18px;
+    cursor: ew-resize;
+    touch-action: none;
+    user-select: none;
+  }
+  .strip-track {
+    position: absolute;
+    left: 0;
+    right: 0;
+    top: 36px;
+    height: 2px;
+    border-radius: 2px;
+    background: var(--border);
+  }
+  .strip-track-fill {
+    position: absolute;
+    left: 0;
+    top: 36px;
+    height: 2px;
+    border-radius: 2px;
+    background: var(--accent);
+    opacity: 0.9;
+  }
+  .strip-tick {
+    position: absolute;
+    top: 42px;
+    width: 1px;
+    background: var(--border);
+  }
+  .strip-tick.major {
+    background: var(--border-hover);
+  }
+  .strip-tick-label {
+    position: absolute;
+    top: 63px;
+    transform: translateX(-50%);
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--text-muted);
+    font-variant-numeric: tabular-nums;
+  }
+  .strip-tick-label.base {
+    color: var(--text-primary);
+    font-weight: 700;
+  }
+  .strip-thumb-pin {
+    position: absolute;
+    top: 16px;
+    width: 26px;
+    height: 26px;
+    transform: translate(-50%, -50%) rotate(45deg);
+    border-radius: 50% 50% 0 50%;
+    background: var(--bg-elevated);
+    border: 1px solid var(--border-hover);
+    box-shadow: var(--shadow-sm);
+  }
+  .strip-thumb-dot {
+    position: absolute;
+    top: 14px;
+    width: 9px;
+    height: 9px;
+    transform: translate(-50%, -50%);
+    border-radius: 50%;
+    background: var(--accent);
   }
 
   .icon-toggle {
