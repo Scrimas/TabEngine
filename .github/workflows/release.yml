@@ -75,7 +75,15 @@ jobs:
       # (EGL_BAD_PARAMETER, WebKitWebProcess aborts). Every desktop capable of running
       # webkit2gtk-4.1 already ships compatible wayland libs system-wide, so stripping the
       # bundled copies and repacking is safe and lets the AppImage fall through to the host.
-      - name: Strip stale bundled Wayland libs from AppImage
+      #
+      # The inverse skew also bites: linuxdeploy EXCLUDES libfreetype, but the bundled
+      # WebKit's Skia is compiled against this runner's FreeType headers, and FreeType's
+      # COLRv1 color-font API broke ABI in 2.13. On hosts with FreeType >= 2.13 and a
+      # COLRv1 emoji font, rendering an emoji makes Skia index color stops out of bounds
+      # and abort the WebProcess (glibcxx assertion in colrv1_configure_skpaint, #5).
+      # Bundling the runner's libfreetype keeps Skia and FreeType ABI-consistent; its
+      # deps (libpng16, libbrotlidec) are already in the bundle.
+      - name: Fix bundled library set in AppImage
         if: matrix.platform == 'ubuntu-22.04'
         run: |
           set -euo pipefail
@@ -86,6 +94,7 @@ jobs:
                 squashfs-root/usr/lib/libwayland-cursor.so.0 \
                 squashfs-root/usr/lib/libwayland-egl.so.1 \
                 squashfs-root/usr/lib/libwayland-server.so.0
+          cp -L /usr/lib/x86_64-linux-gnu/libfreetype.so.6 squashfs-root/usr/lib/
           curl -fsSL -o appimagetool https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-x86_64.AppImage
           chmod +x appimagetool
           rm -f "$APPIMAGE"
