@@ -7,6 +7,7 @@
     setVisibleTracks,
     getTuningAnchor,
     resize,
+    play,
   } from '$lib/alphatab/AlphaTabManager';
   import { playerStore } from '$lib/stores/player';
   import { tracksStore } from '$lib/stores/tracks';
@@ -17,6 +18,7 @@
   import { getCurrentWebview } from '@tauri-apps/api/webview';
   import type { UnlistenFn } from '@tauri-apps/api/event';
   import { importFileToLibrary, recordOpen } from '$lib/stores/library';
+  import { noteLoadedPath, peekNextInQueue } from '$lib/stores/playlists';
   import type { LibraryEntry } from '$lib/types';
   import { canvasToViewport } from '$lib/alphatab/canvasCoords';
 
@@ -120,6 +122,20 @@
       scoreReady = true; // dismiss the overlay so the UI isn't stuck
     });
 
+    // Playlist auto-advance: song played through to the end naturally (not
+    // looping) — if an active playlist queue is driving playback, load and
+    // play the next song in it once it's rendered.
+    containerEl.addEventListener('tabengine:playerFinished', () => {
+      const nextPath = peekNextInQueue();
+      if (!nextPath) return;
+      const onNextReady = () => {
+        containerEl.removeEventListener('tabengine:renderFinished', onNextReady);
+        play();
+      };
+      containerEl.addEventListener('tabengine:renderFinished', onNextReady);
+      loadFile(nextPath);
+    });
+
     // Dynamic resize debouncer to prevent layout transitions from stuttering the canvas render
     resizeObserver = new ResizeObserver(() => {
       if (resizeTimer) clearTimeout(resizeTimer);
@@ -166,6 +182,7 @@
     try {
       const bytes: number[] = await invoke('read_gp_file', { path });
       loadFromBytes(new Uint8Array(bytes));
+      noteLoadedPath(path);
     } catch (err) {
       reportLoadFailure('Failed to load file', err);
     }

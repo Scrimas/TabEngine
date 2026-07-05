@@ -9,15 +9,52 @@
     removeEntry,
     importFileToLibrary,
   } from '$lib/stores/library';
-  import type { LibraryEntry } from '$lib/types';
+  import { settingsStore, updateSettings } from '$lib/stores/settings';
+  import {
+    playlistsStore, createPlaylist, addToPlaylist,
+    removeFromPlaylist, startQueue, activeQueueStore,
+  } from '$lib/stores/playlists';
+  import PlaylistSongList from './PlaylistSongList.svelte';
+  import type { LibraryEntry, LibrarySortField } from '$lib/types';
 
-  const dispatch = createEventDispatcher<{ load: string; 'open-browser': void }>();
+  const dispatch = createEventDispatcher<{ load: string; 'open-browser': void; 'open-playlists': void }>();
 
   let searchQuery = '';
+  let viewMode: 'library' | 'playlist' = 'library';
 
-  $: filtered = $libraryStore.entries.filter(e =>
-    e.name.toLowerCase().includes(searchQuery.toLowerCase()),
+  $: activePlaylist = $playlistsStore.find(p => p.id === $activeQueueStore.playlistId) ?? null;
+  $: activePlaylistSongs = (activePlaylist?.paths ?? [])
+    .map(path => $libraryStore.entries.find(e => e.path === path))
+    .filter((e): e is LibraryEntry => !!e);
+
+  async function playActivePlaylistPath(path: string) {
+    if (!activePlaylist) return;
+    const loadPath = startQueue(activePlaylist.id, path);
+    if (!loadPath) return;
+    const entry = $libraryStore.entries.find(e => e.path === loadPath);
+    if (entry) recordOpen(entry);
+    dispatch('load', loadPath);
+  }
+
+  function sortEntries(entries: LibraryEntry[], field: LibrarySortField): LibraryEntry[] {
+    const copy = [...entries];
+    switch (field) {
+      case 'type':       return copy.sort((a, b) => a.ext.localeCompare(b.ext) || a.name.localeCompare(b.name));
+      case 'dateAdded':  return copy.sort((a, b) => (b.dateAdded  ?? 0) - (a.dateAdded  ?? 0));
+      case 'dateOpened': return copy.sort((a, b) => (b.lastOpened ?? 0) - (a.lastOpened ?? 0));
+      default:           return copy.sort((a, b) => a.name.localeCompare(b.name));
+    }
+  }
+
+  $: filtered = sortEntries(
+    $libraryStore.entries.filter(e => e.name.toLowerCase().includes(searchQuery.toLowerCase())),
+    $settingsStore.librarySortField,
   );
+
+  function handleSortChange(e: Event) {
+    const field = (e.currentTarget as HTMLSelectElement).value as LibrarySortField;
+    updateSettings({ librarySortField: field });
+  }
 
   const EXT_COLOR: Record<string, string> = {
     gp:  '#8b7cf6', gp3: '#fb7185', gp4: '#4ade80',
@@ -89,18 +126,43 @@
   // ── Context menu ─────────────────────────────────────────────────────────────
 
   let contextMenu: { x: number; y: number; entry: LibraryEntry } | null = null;
+  let contextMenuAddMode = false;
+  let ctxMenuEl: HTMLDivElement | null = null;
 
-  function openContextMenu(e: MouseEvent, entry: LibraryEntry) {
+  async function openContextMenu(e: MouseEvent, entry: LibraryEntry) {
     e.preventDefault();
     e.stopPropagation();
     contextMenu = { x: e.clientX, y: e.clientY, entry };
+    contextMenuAddMode = false;
+    // Right-clicking doesn't move DOM focus, and in the Tauri webview that can
+    // leave the very next keydown (Escape) undelivered until something is
+    // clicked. Force focus onto the menu itself so Escape works immediately.
+    await tick();
+    ctxMenuEl?.focus();
   }
 
-  function closeContextMenu() { contextMenu = null; }
+  function closeContextMenu() { contextMenu = null; contextMenuAddMode = false; }
+
+  function handleWindowKeyDown(e: KeyboardEvent) {
+    if (e.key === 'Escape' && contextMenu) closeContextMenu();
+  }
 
   function ctxRemoveFromLibrary() {
     if (!contextMenu) return;
     removeEntry(contextMenu.entry.path);
+    closeContextMenu();
+  }
+
+  function ctxAddToPlaylist(playlistId: string) {
+    if (!contextMenu) return;
+    addToPlaylist(playlistId, contextMenu.entry.path);
+    closeContextMenu();
+  }
+
+  function ctxAddToNewPlaylist() {
+    if (!contextMenu) return;
+    const playlist = createPlaylist('New Playlist');
+    addToPlaylist(playlist.id, contextMenu.entry.path);
     closeContextMenu();
   }
 
@@ -139,6 +201,8 @@
   }
 </script>
 
+<svelte:window on:keydown={handleWindowKeyDown} />
+
 <aside class="sidebar" role="navigation" aria-label="File library">
   <!-- Search bar -->
   <div class="search-wrap">
@@ -152,8 +216,9 @@
         placeholder="Search library…"
         bind:value={searchQuery}
         on:dragstart|preventDefault
-        on:keydown|stopPropagation={(e) => {
+        on:keydown={(e) => {
           if ((e.key === 'a' || e.key === 'A') && (e.ctrlKey || e.metaKey)) {
+            e.stopPropagation();
             e.preventDefault();
             e.currentTarget.select();
           }
@@ -163,7 +228,7 @@
     </div>
 
     <div class="action-btns">
-      <button class="action-btn primary" on:click={openFileDialog}>
+      <button class="action-btn primary full-row" on:click={openFileDialog}>
         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor"
              stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
           <path d="M14 3v5h5"/><path d="M6 3h8l5 5v11a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1z"/>
@@ -179,14 +244,75 @@
         </svg>
         Songsterr
       </button>
+      <button class="action-btn" on:click={() => dispatch('open-playlists')}>
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+             stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M9 18V6l10-2v12"/>
+          <circle cx="6.5" cy="18" r="2.5"/>
+          <circle cx="16.5" cy="16" r="2.5"/>
+        </svg>
+        Playlists
+      </button>
     </div>
   </div>
 
-  <!-- Library label -->
+  <!-- Library / Playlist toggle -->
   <div class="lib-header">
-    <span class="lib-label">Library</span>
-    <span class="lib-count">{filtered.length}</span>
+    <div class="view-toggle" role="tablist" aria-label="Library view">
+      <button
+        class="view-tab"
+        class:active={viewMode === 'library'}
+        role="tab"
+        aria-selected={viewMode === 'library'}
+        on:click={() => viewMode = 'library'}
+      >
+        Library
+      </button>
+      <button
+        class="view-tab"
+        class:active={viewMode === 'playlist'}
+        role="tab"
+        aria-selected={viewMode === 'playlist'}
+        on:click={() => viewMode = 'playlist'}
+      >
+        Playlist
+      </button>
+    </div>
+    <div class="lib-header-right">
+      {#if viewMode === 'library'}
+        <span class="sort-label">Sort by:</span>
+        <select
+          class="sort-select"
+          value={$settingsStore.librarySortField}
+          on:change={handleSortChange}
+          aria-label="Sort library by"
+        >
+          <option value="name">Name</option>
+          <option value="dateAdded">Date added</option>
+          <option value="dateOpened">Date opened</option>
+          <option value="type">Type</option>
+        </select>
+      {/if}
+      <span class="lib-count">{viewMode === 'library' ? filtered.length : activePlaylistSongs.length}</span>
+    </div>
   </div>
+
+  {#if viewMode === 'playlist'}
+    {#if !activePlaylist}
+      <div class="empty-msg">
+        <p>No playlist is currently playing.</p>
+        <p>Open Playlists to start one.</p>
+      </div>
+    {:else}
+      <PlaylistSongList
+        playlist={activePlaylist}
+        songs={activePlaylistSongs}
+        currentPath={$activeQueueStore.currentPath}
+        on:play={(e) => playActivePlaylistPath(e.detail)}
+        on:remove={(e) => activePlaylist && removeFromPlaylist(activePlaylist.id, e.detail)}
+      />
+    {/if}
+  {:else}
 
   <!-- Loading -->
   {#if $libraryStore.isLoading}
@@ -296,6 +422,7 @@
       {/each}
     {/if}
   </div>
+  {/if}
 
   <!-- Import hint -->
   <div class="import-hint">
@@ -319,27 +446,62 @@
       class="ctx-menu"
       style="left:{contextMenu.x}px;top:{contextMenu.y}px"
       role="menu"
+      tabindex="-1"
+      bind:this={ctxMenuEl}
     >
-      <!-- svelte-ignore a11y-click-events-have-key-events -->
-      <button class="ctx-item" role="menuitem" on:click={ctxRemoveFromLibrary}>
-        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-             stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-          <path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="M19 6l-1 14H6L5 6"/>
-          <path d="M10 11v6"/><path d="M14 11v6"/>
-        </svg>
-        Remove from library
-      </button>
-      <!-- svelte-ignore a11y-click-events-have-key-events -->
-      <button class="ctx-item danger" role="menuitem" on:click={ctxDeleteFromDisk}>
-        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-             stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-          <polyline points="3 6 5 6 21 6"/>
-          <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/>
-          <path d="M10 11v6"/><path d="M14 11v6"/>
-          <path d="M9 6V4h6v2"/>
-        </svg>
-        Delete file from disk
-      </button>
+      {#if !contextMenuAddMode}
+        <!-- svelte-ignore a11y-click-events-have-key-events -->
+        <button class="ctx-item" role="menuitem" on:click={() => contextMenuAddMode = true}>
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+               stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M12 5v14M5 12h14"/>
+          </svg>
+          Add to playlist
+        </button>
+        <!-- svelte-ignore a11y-click-events-have-key-events -->
+        <button class="ctx-item" role="menuitem" on:click={ctxRemoveFromLibrary}>
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+               stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="M19 6l-1 14H6L5 6"/>
+            <path d="M10 11v6"/><path d="M14 11v6"/>
+          </svg>
+          Remove from library
+        </button>
+        <!-- svelte-ignore a11y-click-events-have-key-events -->
+        <button class="ctx-item danger" role="menuitem" on:click={ctxDeleteFromDisk}>
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+               stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <polyline points="3 6 5 6 21 6"/>
+            <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/>
+            <path d="M10 11v6"/><path d="M14 11v6"/>
+            <path d="M9 6V4h6v2"/>
+          </svg>
+          Delete file from disk
+        </button>
+      {:else}
+        <!-- svelte-ignore a11y-click-events-have-key-events -->
+        <button class="ctx-item" role="menuitem" on:click={() => contextMenuAddMode = false}>
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+               stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M15 6l-6 6 6 6"/>
+          </svg>
+          Back
+        </button>
+        {#each $playlistsStore as playlist (playlist.id)}
+          <!-- svelte-ignore a11y-click-events-have-key-events -->
+          <button class="ctx-item" role="menuitem" on:click={() => ctxAddToPlaylist(playlist.id)}>
+            {playlist.name}
+          </button>
+        {/each}
+        <!-- svelte-ignore a11y-click-events-have-key-events -->
+        <button class="ctx-item" role="menuitem" on:click={ctxAddToNewPlaylist}>
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+               stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M12 5v14M5 12h14"/>
+          </svg>
+          New playlist…
+        </button>
+      {/if}
     </div>
   {/if}
 </aside>
@@ -392,6 +554,9 @@
     gap: 8px;
     margin-top: 10px;
   }
+  .action-btn.full-row {
+    grid-column: 1 / -1;
+  }
   .action-btn {
     display: flex;
     align-items: center;
@@ -425,21 +590,80 @@
   .lib-header {
     display: flex;
     align-items: center;
-    justify-content: space-between;
+    gap: 8px;
     padding: 6px 18px 8px;
     flex-shrink: 0;
   }
-  .lib-label {
+
+  .view-toggle {
+    display: flex;
+    background: rgba(43,40,35,0.05);
+    border-radius: 7px;
+    padding: 2px;
+    gap: 2px;
+  }
+  .view-tab {
+    padding: 3px 9px;
+    border: none;
+    border-radius: 5px;
+    background: transparent;
+    color: var(--text-muted);
     font-size: 10.5px;
     font-weight: 600;
-    letter-spacing: 1.2px;
-    color: var(--text-muted);
-    text-transform: uppercase;
+    cursor: pointer;
+    transition: background var(--transition), color var(--transition);
   }
+  .view-tab:hover { color: var(--text-secondary); }
+  .view-tab.active {
+    background: var(--bg-elevated);
+    color: var(--accent);
+    box-shadow: var(--shadow-sm);
+  }
+
+  .lib-header-right {
+    margin-left: auto;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+
   .lib-count {
     font-family: var(--font-mono);
     font-size: 10.5px;
     color: var(--text-muted);
+  }
+
+  .sort-label {
+    font-size: 10.5px;
+    color: var(--text-muted);
+    white-space: nowrap;
+  }
+
+  .sort-select {
+    appearance: none;
+    -webkit-appearance: none;
+    -moz-appearance: none;
+    background-color: var(--bg-elevated);
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' fill='none' stroke='%239e9180' stroke-width='1.4' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 7px center;
+    background-size: 8px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 2px 22px 2px 7px;
+    color: var(--text-secondary);
+    font-size: 10.5px;
+    font-family: inherit;
+    cursor: pointer;
+    outline: none;
+  }
+  .sort-select:hover {
+    border-color: var(--border-hover);
+    color: var(--text-primary);
+  }
+  .sort-select:focus-visible {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 2px var(--accent-dim);
   }
 
   .loading-bar {
@@ -663,6 +887,7 @@
     display: flex;
     flex-direction: column;
     gap: 2px;
+    outline: none;
   }
   .ctx-item {
     display: flex;

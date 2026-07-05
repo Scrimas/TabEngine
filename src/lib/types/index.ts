@@ -80,7 +80,18 @@ export interface LibraryEntry {
   name:     string;
   ext:      string;
   size:     number;   // bytes
-  lastOpened?: number; // unix timestamp ms
+  dateAdded?:  number; // unix timestamp ms — first time this path was opened/imported
+  lastOpened?: number; // unix timestamp ms — most recent time this path was opened
+}
+
+export type LibrarySortField = 'name' | 'dateAdded' | 'dateOpened' | 'type';
+
+// ── Playlists ─────────────────────────────────────────────────────────────────
+
+export interface Playlist {
+  id:    string;
+  name:  string;
+  paths: string[]; // LibraryEntry.path, in playback order
 }
 
 export interface LibraryState {

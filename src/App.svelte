@@ -7,6 +7,7 @@
   import Sidebar     from '$lib/components/Sidebar.svelte';
   import SongsterrBrowser from '$lib/components/SongsterrBrowser.svelte';
   import SettingsDialog   from '$lib/components/SettingsDialog.svelte';
+  import PlaylistsView    from '$lib/components/PlaylistsView.svelte';
 
   import {
     playPause, stop, seekToPrevBar, seekToNextBar, seekToPrevRow, seekToNextRow,
@@ -22,10 +23,11 @@
   import { settingsStore, updateSettings } from '$lib/stores/settings';
   import type { LibraryEntry } from '$lib/types';
 
-  let sidebarOpen  = true;
-  let mixerOpen    = true;
-  let browserOpen  = false;
-  let settingsOpen = false;
+  let sidebarOpen   = true;
+  let mixerOpen     = true;
+  let browserOpen   = false;
+  let settingsOpen  = false;
+  let playlistsOpen = false;
 
   let scoreViewer: ScoreViewer;
 
@@ -78,7 +80,7 @@
     updateSettings({ theme: $settingsStore.theme === 'parchment' ? 'dark' : 'parchment' });
   }
 
-  // ── Sidebar load ──────────────────────────────────────────────────────────────
+  // ── Sidebar / Playlists load ─────────────────────────────────────────────────
   async function handleSidebarLoad(e: CustomEvent<string>) {
     await scoreViewer?.loadFile(e.detail);
   }
@@ -140,7 +142,9 @@
         playPause();
         break;
       case e.code === 'Escape':
-        stop();
+        // Let an open overlay's own Escape handler close it instead of also
+        // stopping playback as an unrelated side effect.
+        if (!settingsOpen && !browserOpen && !playlistsOpen) stop();
         break;
       case e.code === 'KeyO' && e.ctrlKey:
         e.preventDefault();
@@ -157,6 +161,10 @@
       case e.code === 'KeyF' && e.ctrlKey && e.shiftKey:
         e.preventDefault();
         browserOpen = !browserOpen;
+        break;
+      case e.code === 'KeyP' && e.ctrlKey && e.shiftKey:
+        e.preventDefault();
+        playlistsOpen = !playlistsOpen;
         break;
       case e.key === ',' && e.ctrlKey:
         e.preventDefault();
@@ -207,7 +215,11 @@
     on:toggle-mixer={() => mixerOpen = !mixerOpen}
     on:toggle-theme={toggleTheme}
   />
-  <Sidebar on:load={handleSidebarLoad} on:open-browser={() => browserOpen = !browserOpen} />
+  <Sidebar
+    on:load={handleSidebarLoad}
+    on:open-browser={() => browserOpen = !browserOpen}
+    on:open-playlists={() => playlistsOpen = !playlistsOpen}
+  />
 
   <!-- Sidebar drag handle -->
   {#if sidebarOpen}
@@ -247,6 +259,11 @@
 
 <SongsterrBrowser open={browserOpen} on:close={() => browserOpen = false} />
 <SettingsDialog open={settingsOpen} on:close={() => settingsOpen = false} />
+<PlaylistsView
+  open={playlistsOpen}
+  on:close={() => playlistsOpen = false}
+  on:load={handleSidebarLoad}
+/>
 
 <style>
   .app-shell {

@@ -312,6 +312,7 @@ export function initAlphaTab(container: HTMLElement): void {
   api.playerFinished.on(() => {
     if (!api!.isLooping) {
       api!.stop();
+      container.dispatchEvent(new CustomEvent('tabengine:playerFinished'));
     }
   });
 

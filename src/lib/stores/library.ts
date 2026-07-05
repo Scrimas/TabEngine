@@ -2,9 +2,9 @@
 
 import { writable } from 'svelte/store';
 import type { LibraryState, LibraryEntry, SongsterrSong } from '$lib/types';
+import { renamePathInPlaylists, removePathFromPlaylists } from './playlists';
 
 const RECENT_KEY = 'tabengine:recent';
-const MAX_RECENT = 20;
 
 function loadRecent(): LibraryEntry[] {
   try {
@@ -17,7 +17,7 @@ function loadRecent(): LibraryEntry[] {
 
 function saveRecent(entries: LibraryEntry[]): void {
   try {
-    localStorage.setItem(RECENT_KEY, JSON.stringify(entries.slice(0, MAX_RECENT)));
+    localStorage.setItem(RECENT_KEY, JSON.stringify(entries));
   } catch { /* quota exceeded — silently ignore */ }
 }
 
@@ -34,9 +34,10 @@ export const libraryStore = writable<LibraryState>({
 export function recordOpen(entry: LibraryEntry): void {
   libraryStore.update(state => {
     const ts = Date.now();
-    const updated: LibraryEntry = { ...entry, lastOpened: ts };
+    const existing = state.entries.find(e => e.path === entry.path);
+    const updated: LibraryEntry = { ...entry, dateAdded: existing?.dateAdded ?? ts, lastOpened: ts };
     const filtered = state.entries.filter(e => e.path !== entry.path);
-    const entries = [updated, ...filtered].slice(0, MAX_RECENT);
+    const entries = [updated, ...filtered];
     saveRecent(entries);
     return {
       ...state,
@@ -86,17 +87,19 @@ export function removeEntry(path: string): void {
     const currentPath = state.currentPath === path ? null : state.currentPath;
     return { ...state, entries, currentPath };
   });
+  removePathFromPlaylists(path);
 }
 
 export function renameEntry(oldPath: string, newEntry: LibraryEntry): void {
   libraryStore.update(state => {
     const entries = state.entries.map(e =>
-      e.path === oldPath ? { ...newEntry, lastOpened: e.lastOpened } : e,
+      e.path === oldPath ? { ...newEntry, dateAdded: e.dateAdded, lastOpened: e.lastOpened } : e,
     );
     saveRecent(entries);
     const currentPath = state.currentPath === oldPath ? newEntry.path : state.currentPath;
     return { ...state, entries, currentPath };
   });
+  renamePathInPlaylists(oldPath, newEntry.path);
 }
 
 import { invoke } from '@tauri-apps/api/core';
