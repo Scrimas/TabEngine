@@ -17,8 +17,7 @@ export interface PlayerState {
   playbackSpeed:   number;    // multiplier, 0.25–2.0
 
   isLooping:       boolean;
-  loopStartTick:   number;
-  loopEndTick:     number;
+  loopHighlight:   LoopHighlightBounds | null;
 
   metronomeEnabled: boolean;
   masterVolume:    number;    // 0–100
@@ -27,6 +26,15 @@ export interface PlayerState {
   beatCanvasX: number;
   beatCanvasY: number;
   beatCanvasH: number;
+}
+
+/** Canvas-space bounds of the two beats bounding the active loop selection,
+ *  used to position the draggable edge handles. Mirrors alphaTab's
+ *  `PlaybackHighlightChangeEventArgs`, projected down to plain numbers so the
+ *  store stays serializable. */
+export interface LoopHighlightBounds {
+  startX: number; startY: number; startH: number;
+  endX:   number; endY: number;   endH: number;
 }
 
 export const DEFAULT_PLAYER_STATE: PlayerState = {
@@ -41,8 +49,7 @@ export const DEFAULT_PLAYER_STATE: PlayerState = {
   tempo:           120,
   playbackSpeed:   1.0,
   isLooping:       false,
-  loopStartTick:   0,
-  loopEndTick:     0,
+  loopHighlight:   null,
   metronomeEnabled: false,
   masterVolume:    100,
   countInEnabled:  false,

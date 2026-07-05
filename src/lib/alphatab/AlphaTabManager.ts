@@ -42,7 +42,7 @@ import bravuraWoff from '@coderline/alphatab/font/Bravura.woff?url';
 import bravuraOtf from '@coderline/alphatab/font/Bravura.otf?url';
 import sonivoxSf2 from '@coderline/alphatab/soundfont/sonivox.sf2?url';
 import { TRACK_COLORS, formatTuning } from '$lib/types';
-import type { TrackState } from '$lib/types';
+import type { TrackState, LoopHighlightBounds } from '$lib/types';
 import { get } from 'svelte/store';
 import { playerStore } from '$lib/stores/player';
 import { settingsStore } from '$lib/stores/settings';
@@ -53,6 +53,32 @@ let api:        alphaTab.AlphaTabApi | null = null;
 let viewportEl: HTMLElement          | null = null;
 let metronomeVolumeLimit = 80;
 let countInBarLimit = 1;
+
+// Same value as Settings.display.systemPaddingBottom below — the blank
+// breathing room reserved below each system so the detached rhythm strip
+// never crowds the next row's bar numbers. masterBarBounds.realBounds
+// includes this trailing whitespace (it's part of the row's own allocated
+// band, not the next row's), so the cursor and loop handles need to trim it
+// back off to stop right after the rhythm strip instead of well past it.
+const SYSTEM_BOTTOM_PADDING = 32;
+
+/** Trim the reserved trailing whitespace off a masterBarBounds.realBounds
+ *  height — used by both the cursor and loop handles so they stop right
+ *  after the rhythm strip instead of extending into the next row's gap. */
+function trimBottomPadding(h: number): number {
+  return Math.max(1, h - SYSTEM_BOTTOM_PADDING);
+}
+
+// Loop selection state — the two beats bounding the current highlight/range.
+// Kept in sync by the playbackRangeHighlightChanged listener regardless of
+// whether the change came from alphaTab's own drag-to-select or our own
+// dragLoopHandle() calls, so both interaction paths share one source of truth.
+let loopStartBeat: alphaTab.model.Beat | null = null;
+let loopEndBeat:   alphaTab.model.Beat | null = null;
+// Tracks actually rendered right now — used to pick a sensible default track
+// when seeding a loop range with no prior selection (setVisibleTracks keeps
+// this in sync with whatever the UI currently shows).
+let visibleTrackIndices: number[] = [];
 
 // ── Init ──────────────────────────────────────────────────────────────────────
 
@@ -109,7 +135,7 @@ export function initAlphaTab(container: HTMLElement): void {
       // Extra vertical breathing room between rendered rows (systems) so the
       // rhythm strip below each tab never crowds the next row's bar numbers.
       systemPaddingTop:    22,
-      systemPaddingBottom: 32,
+      systemPaddingBottom: SYSTEM_BOTTOM_PADDING,
       resources: {
         staffLineColor:      isDark ? 'rgba(66,62,53,0.70)'    : 'rgba(205,195,170,0.70)',
         barSeparatorColor:   isDark ? 'rgba(66,62,53,0.85)'    : 'rgba(205,195,170,0.85)',
@@ -161,6 +187,8 @@ export function initAlphaTab(container: HTMLElement): void {
   // api.load() regardless of whether the JSON constructor path succeeded.
   applyThemeColors(api, isDark);
   appliedTheme = isDark ? 'dark' : 'parchment';
+
+  applyRealBoundsCursorHandler(api);
 
   // Disable wide-vibrato elements and slight beat vibratos (angular VVVV zigzag)
   // to prevent double notation and only show the smooth staff-level waves.
@@ -220,6 +248,14 @@ export function initAlphaTab(container: HTMLElement): void {
   // 5. Score loaded — build the mixer track list, then suppress rest glyphs in
   //    bars that contain only rests (no fret numbers).
   api.scoreLoaded.on((score) => {
+    // Clear any loop range/highlight left over from the previous score —
+    // resetPlayer() below only resets the store, not the live api state, and
+    // stale Beat references from the old score must not survive a file swap
+    // (see forceClearLoopSelection for why this can't just be
+    // clearPlaybackRangeHighlight()).
+    api!.isLooping = false;
+    forceClearLoopSelection();
+
     resetPlayer();
     updatePlayer({ tempo: score.tempo });
 
@@ -244,8 +280,10 @@ export function initAlphaTab(container: HTMLElement): void {
     dedupeSectionMarkerText(score);
   });
 
-  // 6. Render finished — notify the ScoreViewer (flips the loading overlay off).
+  // 6. Render finished — notify the ScoreViewer (flips the loading overlay off)
+  //    and make sure the beat cursor has its pin-shape SVG child.
   api.renderFinished.on(() => {
+    ensureCursorPinShape(container);
     container.dispatchEvent(new CustomEvent('tabengine:renderFinished'));
   });
 
@@ -271,7 +309,112 @@ export function initAlphaTab(container: HTMLElement): void {
     updatePlayer({ beatCanvasX: b.onNotesX, beatCanvasY: bar.y, beatCanvasH: bar.h });
   });
 
+  // 9. Playback range highlight changed — fires live during alphaTab's own
+  //    built-in click-drag-to-select (enabled by default via
+  //    player.enableUserInteraction) AND whenever we call
+  //    highlightPlaybackRange() ourselves (default range / handle drag).
+  //    Single source of truth for both interaction paths.
+  api.playbackRangeHighlightChanged.on((e) => {
+    loopStartBeat = e.startBeat ?? null;
+    loopEndBeat   = e.endBeat   ?? null;
+    updatePlayer({ loopHighlight: projectLoopHighlight(e) });
+  });
+
   console.info('[AlphaTabManager] Initialised successfully.');
+}
+
+const SVG_NS = 'http://www.w3.org/2000/svg';
+const CURSOR_PIN_PATH_D =
+  'M0,6.6 Q0,0 6,0 q6,0 6,6.6 v76.8 c0,1.82,-0.49,3.59,-1.42,5.15 l-2.86,4.76 ' +
+  'c-0.78,1.3,-2.65,1.3,-3.43,0 l-2.86,-4.76 c-0.93,-1.56,-1.43,-3.33,-1.43,-5.15 v-76.8 Z';
+// Songsterr's own small oval/leaf "bud" that sits inside the pin head — same
+// coordinate frame as CURSOR_PIN_PATH_D (both taken from the same source SVG),
+// so the transform can be reused verbatim with no recomputation.
+const CURSOR_PIN_ICON_D =
+  'M0,2.97 C0,0.27 3,0 3.98,0 C4.97,0 8,0.27 8,2.97 C8,5.97 5.12,9.67 4,9.67 C2.88,9.67 0,5.97 0,2.97 Z';
+
+/**
+ * Injects Songsterr's cursor-pin shape as a real inline <svg> child of
+ * alphaTab's `.at-cursor-beat` div, instead of a CSS `background-image` data
+ * URI. A solid-color control (same width/transform, no image) confirmed the
+ * div's own sizing math is correct — the SVG-as-background-image specifically
+ * fails to paint in this WebKitGTK build: viewBox-only renders as a hairline,
+ * and adding explicit width/height attributes (the usual fix for that class
+ * of bug elsewhere) makes it paint nothing at all instead. A real SVG element
+ * sized via width/height:100% is a different rendering path and isn't
+ * subject to that bug.
+ * Idempotent and safe to call after every render — `.at-cursor-beat` is
+ * created once and persists for the app's lifetime (alphaTab only recreates
+ * it if cursors are toggled off/on), so the `querySelector('svg')` guard
+ * means this only actually does anything once.
+ */
+function ensureCursorPinShape(container: HTMLElement): void {
+  const beatCursor = container.querySelector<HTMLElement>('.at-cursor-beat');
+  if (!beatCursor || beatCursor.querySelector('svg')) return;
+  const svg = document.createElementNS(SVG_NS, 'svg');
+  svg.setAttribute('viewBox', '0 0 12 93.4');
+  svg.setAttribute('preserveAspectRatio', 'none');
+  svg.style.position = 'absolute';
+  svg.style.inset = '0';
+  svg.style.width = '100%';
+  svg.style.height = '100%';
+  svg.style.display = 'block';
+  svg.style.pointerEvents = 'none';
+
+  // Body is deliberately translucent — it's wide enough to sit directly over
+  // the fret numbers as it moves, so it must not fully hide them.
+  const body = document.createElementNS(SVG_NS, 'path');
+  body.setAttribute('d', CURSOR_PIN_PATH_D);
+  body.style.fill = 'var(--accent)';
+  body.style.fillOpacity = '0.45';
+  svg.appendChild(body);
+
+  const icon = document.createElementNS(SVG_NS, 'path');
+  icon.setAttribute('transform', 'translate(2 2)');
+  icon.setAttribute('d', CURSOR_PIN_ICON_D);
+  icon.style.fill = '#fff';
+  icon.style.fillOpacity = '0.9';
+  svg.appendChild(icon);
+
+  beatCursor.appendChild(svg);
+}
+
+/**
+ * Custom cursor placement — identical to alphaTab's own default
+ * ToNextBeatAnimatingCursorHandler (see CursorHandler.ts), except it reads
+ * `masterBarBounds.realBounds` instead of `.visualBounds`. The stock handler
+ * uses visualBounds, which grows to include every decoration registered via
+ * registerOverflowTop/Bottom above/below the staff (bend-technique labels,
+ * section markers, etc.) — that's why the bar/beat cursor was stretching up
+ * to cover things like a "[Chorus]" section marker instead of stopping at
+ * the staff itself. `customCursorHandler` is a public alphaTab API (since
+ * 1.8.1) made exactly for this kind of override, so this needs no source
+ * patching (unlike the worker-visible Songsterr tab-style patch — cursor
+ * placement runs on the main thread only, this object is enough on its own).
+ */
+// Assigned inline (not via a standalone typed const) so TypeScript picks up
+// each method's parameter types by contextual inference from
+// AlphaTabApi.customCursorHandler's setter — `ICursorHandler` exists in the
+// .d.ts but isn't itself exported from the package, so it can't be named
+// directly here.
+function applyRealBoundsCursorHandler(api: alphaTab.AlphaTabApi): void {
+  api.customCursorHandler = {
+    onAttach() {},
+    onDetach() {},
+    placeBarCursor(barCursor, beatBounds) {
+      const bounds = beatBounds.barBounds.masterBarBounds.realBounds;
+      barCursor.setBounds(bounds.x, bounds.y, bounds.w, trimBottomPadding(bounds.h));
+    },
+    placeBeatCursor(beatCursor, beatBounds, startBeatX) {
+      const bounds = beatBounds.barBounds.masterBarBounds.realBounds;
+      beatCursor.transitionToX(0, startBeatX);
+      beatCursor.setBounds(startBeatX, bounds.y, 1, trimBottomPadding(bounds.h));
+    },
+    transitionBeatCursor(beatCursor, _beatBounds, startBeatX, nextBeatX, duration, cursorMode) {
+      const factor = cursorMode === alphaTab.midi.MidiTickLookupFindBeatResultCursorMode.ToNextBext ? 2 : 1;
+      beatCursor.transitionToX(duration * factor, startBeatX + (nextBeatX - startBeatX) * factor);
+    },
+  };
 }
 
 // ── Transport controls ────────────────────────────────────────────────────────
@@ -390,34 +533,147 @@ export function setTrackSoloed(trackIndex: number, soloed: boolean): void {
 // ── Loop selection ────────────────────────────────────────────────────────────
 
 /**
- * Activate looping between two tick positions.
- */
-export function setLoopRange(startTick: number, endTick: number): void {
-  if (!api) return;
-  api.playbackRange = { startTick, endTick };
-  api.isLooping     = true;
-  updatePlayer({ isLooping: true, loopStartTick: startTick, loopEndTick: endTick });
-}
-
-export function clearLoop(): void {
-  if (!api) return;
-  api.isLooping     = false;
-  api.playbackRange = null;
-  updatePlayer({ isLooping: false, loopStartTick: 0, loopEndTick: 0 });
-}
-
-/**
- * Toggle full-song looping on/off. When disabling, also clears any custom
- * playback range so the next enable starts as a full-song loop.
+ * Toggle looping on/off. Enabling seeds a default range spanning the current
+ * bar if nothing is selected yet (a prior manual drag-to-select is left
+ * untouched — toggling on just loops whatever's already highlighted).
+ * Disabling clears the range/highlight entirely rather than leaving it behind.
  */
 export function setLooping(enabled: boolean): void {
   if (!api) return;
-  api.isLooping = enabled;
-  if (!enabled) {
-    api.playbackRange = null;
-    updatePlayer({ isLooping: false, loopStartTick: 0, loopEndTick: 0 });
-  } else {
+  if (enabled) {
+    if (!api.playbackRange) {
+      const beats = defaultLoopBeats();
+      if (beats) {
+        api.highlightPlaybackRange(beats.startBeat, beats.endBeat);
+        api.applyPlaybackRangeFromHighlight();
+      }
+    }
+    api.isLooping = true;
     updatePlayer({ isLooping: true });
+  } else {
+    api.isLooping = false;
+    forceClearLoopSelection();
+    updatePlayer({ isLooping: false, loopHighlight: null });
+  }
+}
+
+/**
+ * Fully clears the active loop selection, including alphaTab's own internal
+ * `_selectionStart`/`_selectionEnd` bookkeeping — NOT just the visible
+ * highlight. `api.clearPlaybackRangeHighlight()` alone only wipes the DOM
+ * selection blocks; alphaTab still replays the last-highlighted beat on
+ * every future render pass (`_onPostRenderFinished` calls
+ * `highlightPlaybackRange(this._selectionStart.beat, ...)` unconditionally
+ * if that field is still set). If that beat's bar/track is later excluded —
+ * a new score loaded, or the visible-track set changed — the replay throws
+ * (`beat.bounds.realBounds` on a beat the new bounds cache can't find).
+ * Passing the SAME beat as both ends of highlightPlaybackRange +
+ * applyPlaybackRangeFromHighlight hits alphaTab's own same-beat branch,
+ * which is the only path that actually nulls `_selectionStart` — must be
+ * called while `loopStartBeat` is still valid in the CURRENT bounds cache,
+ * i.e. before whatever change is about to invalidate it.
+ */
+function forceClearLoopSelection(): void {
+  if (!api) return;
+  if (loopStartBeat) {
+    api.highlightPlaybackRange(loopStartBeat, loopStartBeat);
+    api.applyPlaybackRangeFromHighlight();
+  }
+  api.playbackRange = null;
+  loopStartBeat = null;
+  loopEndBeat   = null;
+}
+
+/** First/last beat of the bar under the current playback cursor, for the
+ *  currently visible track — used to seed a loop range with no prior
+ *  selection. Returns null if the score/track/bar data isn't available. */
+function defaultLoopBeats(): { startBeat: alphaTab.model.Beat; endBeat: alphaTab.model.Beat } | null {
+  if (!api?.score) return null;
+  const track = api.score.tracks[visibleTrackIndices[0] ?? 0];
+  const beats = track?.staves[0]?.bars[currentBarIndex()]?.voices[0]?.beats;
+  if (!beats?.length) return null;
+  return { startBeat: beats[0], endBeat: beats[beats.length - 1] };
+}
+
+/** Plain-object projection of a beat's canvas bounds for the store. Uses the
+ *  beat's *row* (masterBar) height rather than its own tight bounds — a
+ *  handle spanning only the note glyph looks stubby; spanning the full row
+ *  (matching what alphaTab's own native .at-selection block would use) reads
+ *  as a proper edge marker, Songsterr-style. */
+function projectLoopHighlight(e: alphaTab.PlaybackHighlightChangeEventArgs): LoopHighlightBounds | null {
+  const s  = e.startBeatBounds;
+  const en = e.endBeatBounds;
+  const startBeat = e.startBeat;
+  const endBeat   = e.endBeat;
+  if (!s || !en || !startBeat || !endBeat) return null;
+  const sRow  = s.barBounds.masterBarBounds.realBounds;
+  const enRow = en.barBounds.masterBarBounds.realBounds;
+
+  // Mirror alphaTab's own selection-edge logic (_cursorSelectRange in
+  // alphaTab.core.mjs): a beat sitting at the very start/end of its bar
+  // extends the edge out to the BAR's bounds instead of just the beat's own
+  // tight glyph bounds. Skipping this (using the beat's bounds unconditionally)
+  // is why the left handle sat right up against the note — our default loop
+  // range always starts on beat index 0 of a bar, so that's the common case.
+  const startX = startBeat.index === 0
+    ? sRow.x
+    : s.realBounds.x;
+  const endX = endBeat.index === endBeat.voice.beats.length - 1
+    ? enRow.x + enRow.w
+    : en.realBounds.x + en.realBounds.w;
+
+  return {
+    startX, startY: sRow.y, startH: trimBottomPadding(sRow.h),
+    endX,   endY:   enRow.y, endH:   trimBottomPadding(enRow.h),
+  };
+}
+
+/** Resolve the beat under a canvas-space point — used to snap a dragged loop
+ *  handle to the nearest beat. */
+export function getBeatAtCanvasPos(x: number, y: number): alphaTab.model.Beat | null {
+  return api?.boundsLookup?.getBeatAtPos(x, y) ?? null;
+}
+
+/** Resize the active loop selection by moving one edge to `beat` (live
+ *  preview only — does not touch actual playback until commitLoopHandleDrag). */
+export function dragLoopHandle(which: 'start' | 'end', beat: alphaTab.model.Beat): void {
+  if (!api || !loopStartBeat || !loopEndBeat) return;
+  // alphaTab's rendering is lazy/progressive (systems render as they scroll
+  // into view — see the core.useWorkers comment above), so the OTHER, fixed
+  // end of the drag can reference a beat whose row isn't laid out yet once
+  // the drag reaches a different line — most likely once a loop spans more
+  // than one bar. If either beat isn't in the current bounds cache,
+  // alphaTab's own highlightPlaybackRange throws reading
+  // `beat.bounds.realBounds` on the missing one — and since that throw
+  // happens synchronously inside this pointermove-driven call, it corrupts
+  // the drag: the matching pointerup never gets a chance to reset
+  // LoopOverlay's `dragging` state, so the handle keeps tracking the pointer
+  // after the mouse button is released. Skip the update instead of crashing.
+  const anchor = which === 'start' ? loopEndBeat : loopStartBeat;
+  if (!api.boundsLookup?.findBeat(beat) || !api.boundsLookup?.findBeat(anchor)) return;
+  // Belt-and-suspenders on top of the findBeat() checks above: when the drag
+  // spans multiple staff systems, alphaTab's own highlight code also walks
+  // `cache.staffSystems[i]` for every system BETWEEN start and end (to build
+  // one highlight block per row) without checking those slots are populated
+  // yet — a rarer lazy-rendering race the findBeat() checks don't cover,
+  // since both individual beats can already have bounds while an
+  // in-between system doesn't. Any exception here must not escape this
+  // pointermove handler (see the comment above for why that corrupts drag
+  // state), so swallow it and just skip this update.
+  try {
+    if (which === 'start') api.highlightPlaybackRange(beat, loopEndBeat);
+    else api.highlightPlaybackRange(loopStartBeat, beat);
+  } catch (err) {
+    console.warn('[AlphaTabManager] dragLoopHandle: highlightPlaybackRange failed, skipping update', err);
+  }
+}
+
+/** Commit the in-progress handle drag to the actual playback range. */
+export function commitLoopHandleDrag(): void {
+  try {
+    api?.applyPlaybackRangeFromHighlight();
+  } catch (err) {
+    console.warn('[AlphaTabManager] commitLoopHandleDrag: applyPlaybackRangeFromHighlight failed', err);
   }
 }
 
@@ -427,6 +683,13 @@ export function setLooping(enabled: boolean): void {
  */
 export function setVisibleTracks(trackIndices: number[]): void {
   if (!api?.score) return;
+  // Clear the loop selection before re-rendering a different track subset —
+  // the loop's beat may belong to a track about to be excluded, which would
+  // crash the next render pass (see forceClearLoopSelection).
+  if (loopStartBeat) forceClearLoopSelection();
+  visibleTrackIndices = trackIndices.length === 0
+    ? api.score.tracks.map((_, i) => i)
+    : trackIndices;
   const tracks = trackIndices.length === 0
     ? [...api.score.tracks]
     : trackIndices.map(i => api!.score!.tracks[i]).filter(Boolean);
@@ -609,82 +872,6 @@ export function destroyAlphaTab(): void {
   api          = null;
   viewportEl   = null;
   appliedTheme = null;
-}
-
-// ── Loop bounds (for drag-resize handles) ─────────────────────────────────────
-
-export interface LoopBarBounds {
-  startBar: { x: number; y: number; w: number; h: number };
-  endBar:   { x: number; y: number; w: number; h: number };
-}
-
-/**
- * Returns the canvas-coordinate bounding boxes of the bars that contain the
- * loop start and end ticks. Returns null when no loop is active or the layout
- * hasn't been computed yet.
- */
-export function getLoopBarBounds(): LoopBarBounds | null {
-  if (!api?.boundsLookup || !api.tickCache) return null;
-  const { loopStartTick, loopEndTick, isLooping } = get(playerStore);
-  if (!isLooping || loopEndTick <= loopStartTick) return null;
-
-  const bars = api.tickCache.masterBars;
-
-  let si = 0;
-  for (let i = bars.length - 1; i >= 0; i--) {
-    if (bars[i].start <= loopStartTick) { si = i; break; }
-  }
-  let ei = si;
-  for (let i = bars.length - 1; i >= 0; i--) {
-    if (bars[i].start < loopEndTick) { ei = i; break; }
-  }
-
-  const sb = api.boundsLookup.findMasterBarByIndex(si);
-  const eb = api.boundsLookup.findMasterBarByIndex(ei);
-  if (!sb || !eb) return null;
-
-  return {
-    startBar: { x: sb.realBounds.x, y: sb.realBounds.y, w: sb.realBounds.w, h: sb.realBounds.h },
-    endBar:   { x: eb.realBounds.x, y: eb.realBounds.y, w: eb.realBounds.w, h: eb.realBounds.h },
-  };
-}
-
-/**
- * Given canvas-coordinate X/Y, return the bar index whose realBounds contain
- * the point. Falls back to the nearest bar if no exact hit.
- */
-export function findBarIndexAtCanvasPos(cx: number, cy: number): number {
-  if (!api?.boundsLookup || !api.tickCache) return 0;
-  const total = api.tickCache.masterBars.length;
-  for (let i = 0; i < total; i++) {
-    const b = api.boundsLookup.findMasterBarByIndex(i);
-    if (!b) continue;
-    const r = b.realBounds;
-    if (cx >= r.x && cx < r.x + r.w && cy >= r.y && cy < r.y + r.h) return i;
-  }
-  let nearest = 0, nd = Infinity;
-  for (let i = 0; i < total; i++) {
-    const b = api.boundsLookup.findMasterBarByIndex(i);
-    if (!b) continue;
-    const r = b.realBounds;
-    const dx = Math.max(0, r.x - cx, cx - (r.x + r.w));
-    const dy = Math.max(0, r.y - cy, cy - (r.y + r.h));
-    const d = Math.hypot(dx, dy);
-    if (d < nd) { nd = d; nearest = i; }
-  }
-  return nearest;
-}
-
-/** Start tick for a given bar index. */
-export function getBarStartTick(barIndex: number): number {
-  return api?.tickCache?.masterBars[barIndex]?.start ?? 0;
-}
-
-/** End tick for a given bar index (= next bar start). */
-export function getBarEndTick(barIndex: number): number {
-  if (!api?.tickCache) return 0;
-  const bars = api.tickCache.masterBars;
-  return bars[barIndex + 1]?.start ?? (bars[barIndex]?.start ?? 0) + 1920;
 }
 
 /** Expose the raw API for advanced use-cases. */

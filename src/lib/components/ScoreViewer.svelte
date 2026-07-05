@@ -5,11 +5,6 @@
     loadFromBytes,
     destroyAlphaTab,
     setVisibleTracks,
-    setLoopRange,
-    getLoopBarBounds,
-    findBarIndexAtCanvasPos,
-    getBarStartTick,
-    getBarEndTick,
     getTuningAnchor,
     resize,
   } from '$lib/alphatab/AlphaTabManager';
@@ -17,11 +12,13 @@
   import { tracksStore } from '$lib/stores/tracks';
   import { get } from 'svelte/store';
   import LoadingOverlay from './LoadingOverlay.svelte';
+  import LoopOverlay from './LoopOverlay.svelte';
   import { invoke } from '@tauri-apps/api/core';
   import { getCurrentWebview } from '@tauri-apps/api/webview';
   import type { UnlistenFn } from '@tauri-apps/api/event';
   import { importFileToLibrary, recordOpen } from '$lib/stores/library';
   import type { LibraryEntry } from '$lib/types';
+  import { canvasToViewport } from '$lib/alphatab/canvasCoords';
 
   let containerEl: HTMLElement;  // outer <main> — passed to initAlphaTab
   let viewportEl: HTMLDivElement; // .at-viewport scroll container
@@ -47,59 +44,9 @@
     const anchor = getTuningAnchor(selectedTrackIndex);
     if (!anchor) { tuningLabels = []; return; }
     tuningLabels = anchor.lineYs.map((lineY, i) => {
-      const vp = canvasToViewport(anchor.x, lineY);
+      const vp = canvasToViewport(anchor.x, lineY, viewportEl, atMainEl);
       return { x: vp.x, y: vp.y, note: anchor.notes[i] };
     });
-  }
-
-  // ── Loop resize handles ──────────────────────────────────────────────────────
-
-  interface HandlePos { x: number; y: number; h: number; }
-  let startHandle: HandlePos | null = null;
-  let endHandle:   HandlePos | null = null;
-
-  // Convert alphaTab canvas coordinates → viewport-element-relative px.
-  // Adds back viewportEl's current scroll offset so the result is the position
-  // within the *unscrolled* content box — the overlay elements are normal
-  // (scrolling) children of .at-viewport, so the browser's native scroll already
-  // moves them; re-deriving from live (scrolled) bounding rects without this
-  // would double-count the scroll offset and drift at 2x speed.
-  function canvasToViewport(cx: number, cy: number): { x: number; y: number } {
-    if (!viewportEl || !atMainEl) return { x: cx, y: cy };
-    const vr = viewportEl.getBoundingClientRect();
-    const mr = atMainEl.getBoundingClientRect();
-    return {
-      x: cx + (mr.left - vr.left) + viewportEl.scrollLeft,
-      y: cy + (mr.top - vr.top) + viewportEl.scrollTop,
-    };
-  }
-
-  // Convert mouse client position → canvas coordinates
-  function clientToCanvas(clientX: number, clientY: number): { x: number; y: number } {
-    if (!atMainEl) return { x: 0, y: 0 };
-    const mr = atMainEl.getBoundingClientRect();
-    return { x: clientX - mr.left, y: clientY - mr.top };
-  }
-
-  function refreshHandles() {
-    if (!atMainEl) return;
-    const bounds = getLoopBarBounds();
-    if (!bounds) { startHandle = null; endHandle = null; return; }
-    const sv = canvasToViewport(bounds.startBar.x, bounds.startBar.y);
-    const ev = canvasToViewport(
-      bounds.endBar.x + bounds.endBar.w,
-      bounds.endBar.y,
-    );
-    startHandle = { x: sv.x, y: sv.y, h: bounds.startBar.h };
-    endHandle   = { x: ev.x, y: ev.y, h: bounds.endBar.h   };
-  }
-
-  // Reactive refresh when loop state changes
-  $: {
-    $playerStore.loopStartTick;
-    $playerStore.loopEndTick;
-    $playerStore.isLooping;
-    tick().then(refreshHandles);
   }
 
   // Playhead pick position (viewport-relative)
@@ -107,62 +54,11 @@
   $: {
     const s = $playerStore;
     if (s.isPlaying && s.beatCanvasX && atMainEl) {
-      const vp = canvasToViewport(s.beatCanvasX, s.beatCanvasY);
+      const vp = canvasToViewport(s.beatCanvasX, s.beatCanvasY, viewportEl, atMainEl);
       pickPos = { x: vp.x, y: vp.y, h: s.beatCanvasH };
     } else {
       pickPos = null;
     }
-  }
-
-  // Drag state
-  let dragging: 'start' | 'end' | null = null;
-  let dragPreviewX = 0;
-  let dragPreviewY = 0;
-
-  function onHandlePointerDown(e: PointerEvent, which: 'start' | 'end') {
-    e.preventDefault();
-    e.stopPropagation();
-    dragging = which;
-    dragPreviewX = e.clientX;
-    dragPreviewY = e.clientY;
-    (e.target as Element).setPointerCapture(e.pointerId);
-  }
-
-  function onHandlePointerMove(e: PointerEvent) {
-    if (!dragging) return;
-    dragPreviewX = e.clientX;
-    dragPreviewY = e.clientY;
-    // Update preview position of the dragging handle
-    const vr = viewportEl.getBoundingClientRect();
-    const previewVx = e.clientX - vr.left;
-    const previewVy = e.clientY - vr.top;
-    if (dragging === 'start') {
-      startHandle = { ...(startHandle ?? { x: 0, y: 0, h: 40 }), x: previewVx };
-    } else {
-      endHandle = { ...(endHandle ?? { x: 0, y: 0, h: 40 }), x: previewVx };
-    }
-  }
-
-  function onHandlePointerUp(e: PointerEvent) {
-    if (!dragging) return;
-    const which = dragging;
-    dragging = null;
-
-    const canvas = clientToCanvas(e.clientX, e.clientY);
-    const barIdx = findBarIndexAtCanvasPos(canvas.x, canvas.y);
-    const player = get(playerStore);
-
-    if (which === 'start') {
-      const newStart = getBarStartTick(barIdx);
-      const newEnd   = Math.max(newStart + 1, player.loopEndTick);
-      setLoopRange(newStart, newEnd);
-    } else {
-      const newEnd   = getBarEndTick(barIdx);
-      const newStart = Math.min(player.loopStartTick, newEnd - 1);
-      setLoopRange(newStart, newEnd);
-    }
-
-    tick().then(refreshHandles);
   }
 
   let resizeObserver: ResizeObserver | null = null;
@@ -188,7 +84,7 @@
     containerEl.addEventListener('tabengine:renderFinished', () => {
       scoreReady = true;
       atMainEl = containerEl.querySelector<HTMLElement>('.at-main');
-      
+
       const hideVibratoText = () => {
         if (!atMainEl) return;
         const textElements = atMainEl.querySelectorAll('svg text, svg tspan');
@@ -212,7 +108,6 @@
       vibratoObserver = new MutationObserver(hideVibratoText);
       if (atMainEl) vibratoObserver.observe(atMainEl, { childList: true, subtree: true });
 
-      refreshHandles();
       refreshTuningLabels();
     });
 
@@ -226,7 +121,6 @@
       resizeTimer = setTimeout(() => {
         if (scoreReady) {
           resize();
-          refreshHandles();
           refreshTuningLabels();
         }
       }, 150);
@@ -264,8 +158,6 @@
   export async function loadFile(path: string): Promise<void> {
     scoreReady = false;
     selectedTrackIndex = null;
-    startHandle = null;
-    endHandle   = null;
     try {
       const bytes: number[] = await invoke('read_gp_file', { path });
       loadFromBytes(new Uint8Array(bytes));
@@ -353,66 +245,8 @@
   <!-- alphaTab scroll viewport -->
   <div class="at-viewport" class:ready={scoreReady} bind:this={viewportEl}>
 
-    <!-- Loop resize handles (overlaid on viewport) -->
-    {#if $playerStore.isLooping && startHandle && !dragging}
-      <div
-        class="loop-handle loop-handle-start"
-        style="left:{startHandle.x - 20}px; top:{startHandle.y}px; height:{startHandle.h}px"
-        on:pointerdown={(e) => onHandlePointerDown(e, 'start')}
-        on:pointermove={onHandlePointerMove}
-        on:pointerup={onHandlePointerUp}
-        title="Drag to move loop start"
-        aria-label="Loop start handle"
-      >
-        <svg width="10" height="16" viewBox="0 0 10 16" fill="none">
-          <path d="M8 1 L2 8 L8 15" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
-        </svg>
-      </div>
-    {/if}
-
-    {#if $playerStore.isLooping && endHandle && !dragging}
-      <div
-        class="loop-handle loop-handle-end"
-        style="left:{endHandle.x}px; top:{endHandle.y}px; height:{endHandle.h}px"
-        on:pointerdown={(e) => onHandlePointerDown(e, 'end')}
-        on:pointermove={onHandlePointerMove}
-        on:pointerup={onHandlePointerUp}
-        title="Drag to move loop end"
-        aria-label="Loop end handle"
-      >
-        <svg width="10" height="16" viewBox="0 0 10 16" fill="none">
-          <path d="M2 1 L8 8 L2 15" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
-        </svg>
-      </div>
-    {/if}
-
-    <!-- Dragging preview handles -->
-    {#if dragging === 'start' && startHandle}
-      <div
-        class="loop-handle loop-handle-start dragging"
-        style="left:{startHandle.x - 20}px; top:{startHandle.y}px; height:{startHandle.h}px"
-        on:pointermove={onHandlePointerMove}
-        on:pointerup={onHandlePointerUp}
-        role="presentation"
-      >
-        <svg width="10" height="16" viewBox="0 0 10 16" fill="none">
-          <path d="M8 1 L2 8 L8 15" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
-        </svg>
-      </div>
-    {/if}
-    {#if dragging === 'end' && endHandle}
-      <div
-        class="loop-handle loop-handle-end dragging"
-        style="left:{endHandle.x}px; top:{endHandle.y}px; height:{endHandle.h}px"
-        on:pointermove={onHandlePointerMove}
-        on:pointerup={onHandlePointerUp}
-        role="presentation"
-      >
-        <svg width="10" height="16" viewBox="0 0 10 16" fill="none">
-          <path d="M2 1 L8 8 L2 15" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
-        </svg>
-      </div>
-    {/if}
+    <!-- Loop selection drag handles (highlight fill is alphaTab's own .at-selection) -->
+    <LoopOverlay {atMainEl} {viewportEl} />
 
     <!-- Per-string tuning labels at the start of the selected track -->
     {#each tuningLabels as label}
@@ -425,7 +259,7 @@
 
     <div
       class="score-card"
-      on:animationend={() => { refreshHandles(); refreshTuningLabels(); }}
+      on:animationend={refreshTuningLabels}
     >
       <div class="at-main"></div>
     </div>
@@ -528,40 +362,6 @@
     padding: 40px 40px 10px;
   }
 
-  /* ── Loop resize handles ─────────────────────────────────────────────────── */
-  .loop-handle {
-    position: absolute;
-    width: 20px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    cursor: ew-resize;
-    z-index: 20;
-    color: #fff;
-    background: transparent;
-    user-select: none;
-    touch-action: none;
-  }
-  .loop-handle-start { border-right: 3px solid var(--accent); }
-  .loop-handle-end   { border-left:  3px solid var(--accent); }
-
-  .loop-handle svg {
-    width: 20px;
-    height: 20px;
-    background: var(--accent);
-    border-radius: 50%;
-    padding: 4px;
-    box-shadow: 0 2px 8px rgba(192,120,56,0.40);
-    pointer-events: none;
-    flex-shrink: 0;
-    overflow: hidden;
-  }
-  .loop-handle:hover svg,
-  .loop-handle.dragging svg {
-    background: var(--accent-bright);
-    box-shadow: 0 4px 14px rgba(192,120,56,0.55);
-  }
-
   /* ── Tuning labels ───────────────────────────────────────────────────────── */
   .tuning-label {
     position: absolute;
@@ -643,24 +443,61 @@
 
   /* ── alphaTab internal overrides ─────────────────────────────────────────── */
   :global(.at-cursor-bar) {
-    background: transparent !important;
-    border: 1px solid rgba(192,120,56,0.08) !important;
+    background: RGB(217, 138, 82, 0.05) !important;
+    border: 0px solid rgba(192,120,56,0.08) !important;
   }
+  /* Songsterr-style playhead. Two hard constraints discovered by reading
+     alphaTab's own source and by trial:
+     1. alphaTab re-applies `transform: translate() scale()` to this element
+        every frame (its native positioning), where the scale's X factor is
+        a HARDCODED CONSTANT 0.01 (it always calls setBounds with width=1
+        against an internal xscale of 100 — see ScalableHtmlElementContainer
+        in alphaTab.js) and the Y factor varies per row (barHeight/100). So:
+          - any `width` we set is divided by 100 in the final render — to
+            end up with a visible 16px-wide cursor we must set width to
+            **1600px**, not 16px (16px literally renders as 0.16px = gone;
+            this is exactly what broke the previous attempt).
+          - any FIXED-pixel decoration (border-triangle, ::after dot sized
+            in px) gets crushed by that same constant ×0.01 horizontally,
+            and by a *different, dynamic* factor vertically per row — so
+            fixed-px pseudo-elements can't reliably reproduce a shape here.
+          - percentage-based sizing (border-radius %, background-size %) is
+            resolved against the box's own layout dimensions before any
+            transform is applied, so it scales consistently regardless —
+            that's why the whole pin (head, sides, taper) is baked into one
+            background-image SVG at background-size:100% 100% below, rather
+            than built from separate fixed-size pieces.
+     2. `clip-path` (both `url(#svg-clipPath)` and `polygon(...)`) renders
+        this specific element fully invisible in this WebKitGTK build (Tauri
+        Linux webview) — some interaction with the per-frame transform +
+        `will-change: transform` alphaTab already applies. Confirmed by
+        testing both forms; do not reintroduce clip-path here.
+     The SVG below is Songsterr's own cursor body path, embedded verbatim
+     (viewBox 12×93.4, its natural bounding box) and filled with the
+     project's --accent hex directly, since CSS custom properties can't be
+     referenced inside a data: URI. */
+  /* Shape itself is a real inline <svg> child injected by AlphaTabManager's
+     ensureCursorPinShape() — a CSS background-image data URI reliably fails
+     to paint at the transformed size in this WebKitGTK build (confirmed via
+     a solid-color control + DevTools: the div's own width/scale math is
+     correct, only the background-image painting isn't). This rule just
+     resets the div itself to a plain, invisible positioning box. */
   :global(.at-cursor-beat) {
-    background: rgba(192,120,56,0.25) !important;
+    position: relative !important;
+    width: 1600px !important;
+    background: transparent !important;
+    border: none !important;
     border-radius: 0 !important;
     box-shadow: none !important;
   }
+  /* alphaTab's own native selection fill is intentionally left invisible —
+     the LoopOverlay component draws the only visible loop indicator (two
+     edge handles), matching the Songsterr reference look rather than a
+     filled block whose width grows with the loop range. */
   :global(.at-selection div) {
-    background: rgba(192,120,56,0.04) !important;
-  }
-  :global(.at-selection > div:first-child) {
-    border-left: 3px solid var(--accent) !important;
-    box-shadow: inset 2px 0 6px rgba(192,120,56,0.18) !important;
-  }
-  :global(.at-selection > div:last-child) {
-    border-right: 3px solid var(--accent) !important;
-    box-shadow: inset -2px 0 6px rgba(192,120,56,0.18) !important;
+    background: transparent !important;
+    border: none !important;
+    box-shadow: none !important;
   }
   :global(.at-surface) {
     cursor: default;
