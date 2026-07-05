@@ -56,7 +56,7 @@
 
   function handleCardKeyDown(e: KeyboardEvent, path: string) {
     if (editingPath) return;
-    if (e.key === 'Enter' || e.key === ' ') loadEntry(path);
+    if (e.key === 'Enter') loadEntry(path);
   }
 
   // ── Inline rename ────────────────────────────────────────────────────────────
@@ -222,7 +222,7 @@
           draggable="false"
           role={isEditing ? undefined : 'button'}
           tabindex={isEditing ? -1 : 0}
-          on:click={() => { if (!isEditing) loadEntry(entry.path); }}
+          on:click={(e) => { if (!isEditing) { loadEntry(entry.path); e.currentTarget.blur(); } }}
           on:contextmenu={(e) => openContextMenu(e, entry)}
           on:keydown={(e) => handleCardKeyDown(e, entry.path)}
           title={entry.path}
