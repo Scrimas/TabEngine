@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount, onDestroy, tick } from 'svelte';
+  import { onMount, onDestroy } from 'svelte';
   import {
     initAlphaTab,
     loadFromBytes,
@@ -32,7 +32,6 @@
   function selectTrack(index: number | null) {
     selectedTrackIndex = index;
     setVisibleTracks(index === null ? [] : [index]);
-    tick().then(refreshTuningLabels);
   }
 
   // ── Tuning labels (per-string, at the start of the track) ───────────────────
@@ -110,6 +109,12 @@
 
       refreshTuningLabels();
     });
+
+    // Authoritative signal for bounds-derived measurements: fires after the
+    // whole sheet AND every renderFinished handler (incl. DOM resizing) have
+    // run, so it's the point where tuning label positions are guaranteed to
+    // match the currently selected track rather than the previous one.
+    containerEl.addEventListener('tabengine:postRenderFinished', refreshTuningLabels);
 
     containerEl.addEventListener('tabengine:scoreLoadFailed', () => {
       scoreReady = true; // dismiss the overlay so the UI isn't stuck

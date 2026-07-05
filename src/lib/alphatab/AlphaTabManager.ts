@@ -289,6 +289,18 @@ export function initAlphaTab(container: HTMLElement): void {
     container.dispatchEvent(new CustomEvent('tabengine:renderFinished'));
   });
 
+  // 6a. Post-render finished — fires once the whole music sheet AND all
+  //     renderFinished handlers (incl. the host's own DOM resizing) have run.
+  //     boundsLookup-derived measurements (e.g. tuning label positions) must
+  //     wait for this, not renderFinished — alphaTab's own docs note that at
+  //     renderFinished time "there might still be tasks open ... (e.g. resizing
+  //     of DOM elements)", which otherwise reads stale bounds from the
+  //     previous track when switching between tracks with a different string
+  //     count.
+  api.postRenderFinished.on(() => {
+    container.dispatchEvent(new CustomEvent('tabengine:postRenderFinished'));
+  });
+
   // 6b. Any alphaTab error (incl. unparseable files) — dismiss the loading overlay.
   api.error.on(() => {
     container.dispatchEvent(new CustomEvent('tabengine:scoreLoadFailed'));
