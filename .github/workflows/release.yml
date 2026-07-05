@@ -17,7 +17,7 @@ jobs:
         include:
           - platform: "windows-latest"
           - platform: "macos-latest"
-          - platform: "ubuntu-22.04" # Best compatibility for building Linux AppImages
+          - platform: "ubuntu-24.04" # Best compatibility for building Linux AppImages
 
     runs-on: ${{ matrix.platform }}
     steps:
@@ -37,7 +37,7 @@ jobs:
           targets: ${{ matrix.platform == 'macos-latest' && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
 
       - name: Install Linux dependencies
-        if: matrix.platform == 'ubuntu-22.04'
+        if: matrix.platform == 'ubuntu-24.04'
         run: |
           sudo apt-get update
           sudo apt-get install -y \
@@ -69,22 +69,25 @@ jobs:
           releaseDraft: true
           prerelease: false
 
-      # linuxdeploy bundles its own (Ubuntu 22.04-era) libwayland-client/cursor/egl/server
+      # linuxdeploy bundles its own (runner-era) libwayland-client/cursor/egl/server
       # into the AppImage. Its AppRun prepends the bundle to LD_LIBRARY_PATH, shadowing the
       # host's libs — on newer Wayland compositors this breaks WebKitGTK's EGL init
       # (EGL_BAD_PARAMETER, WebKitWebProcess aborts). Every desktop capable of running
       # webkit2gtk-4.1 already ships compatible wayland libs system-wide, so stripping the
       # bundled copies and repacking is safe and lets the AppImage fall through to the host.
       #
-      # The inverse skew also bites: linuxdeploy EXCLUDES libfreetype, but the bundled
-      # WebKit's Skia is compiled against this runner's FreeType headers, and FreeType's
-      # COLRv1 color-font API broke ABI in 2.13. On hosts with FreeType >= 2.13 and a
-      # COLRv1 emoji font, rendering an emoji makes Skia index color stops out of bounds
-      # and abort the WebProcess (glibcxx assertion in colrv1_configure_skpaint, #5).
-      # Bundling the runner's libfreetype keeps Skia and FreeType ABI-consistent; its
-      # deps (libpng16, libbrotlidec) are already in the bundle.
+      # NOTE on the runner choice: this job must run on ubuntu-24.04 or newer, and
+      # libfreetype must NOT be bundled (linuxdeploy rightly excludes it). The bundled
+      # WebKit's Skia is compiled against the runner's FreeType headers but runs against
+      # the host's libfreetype, and FreeType's COLRv1 color-font API had an ABI break
+      # before stabilizing in 2.13.0. Building on 22.04 (FreeType 2.11) made Skia index
+      # COLRv1 color stops out of bounds on any host with FreeType >= 2.13 and a COLRv1
+      # emoji font — a glibcxx assertion abort in colrv1_configure_skpaint (#5). Bundling
+      # the 22.04 libfreetype instead broke font loading wholesale (blank alphaTab score,
+      # runaway WebProcess). 24.04's FreeType 2.13.2 headers are post-stabilization and
+      # ABI-compatible with current hosts, so no freetype hack is needed at all.
       - name: Fix bundled library set in AppImage
-        if: matrix.platform == 'ubuntu-22.04'
+        if: matrix.platform == 'ubuntu-24.04'
         run: |
           set -euo pipefail
           APPIMAGE=$(find src-tauri/target/release/bundle/appimage -name '*.AppImage' | head -1)
@@ -94,7 +97,6 @@ jobs:
                 squashfs-root/usr/lib/libwayland-cursor.so.0 \
                 squashfs-root/usr/lib/libwayland-egl.so.1 \
                 squashfs-root/usr/lib/libwayland-server.so.0
-          cp -L /usr/lib/x86_64-linux-gnu/libfreetype.so.6 squashfs-root/usr/lib/
           curl -fsSL -o appimagetool https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-x86_64.AppImage
           chmod +x appimagetool
           rm -f "$APPIMAGE"
@@ -102,7 +104,7 @@ jobs:
           rm -rf squashfs-root appimagetool
 
       - name: Re-upload patched AppImage to draft release
-        if: matrix.platform == 'ubuntu-22.04'
+        if: matrix.platform == 'ubuntu-24.04'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
