@@ -157,20 +157,26 @@
               value={$songsterrStore.query}
               on:input={handleInput}
               on:dragstart|preventDefault
-              on:keydown|stopPropagation={(e) => {
+              on:keydown={(e) => {
                 if ((e.key === 'a' || e.key === 'A') && (e.ctrlKey || e.metaKey)) {
+                  e.stopPropagation();
                   e.preventDefault();
                   e.currentTarget.select();
                 } else if (e.key === 'ArrowDown') {
+                  e.stopPropagation();
                   e.preventDefault();
                   moveSelection(1);
                 } else if (e.key === 'ArrowUp') {
+                  e.stopPropagation();
                   e.preventDefault();
                   moveSelection(-1);
                 } else if (e.key === 'Enter') {
+                  e.stopPropagation();
                   e.preventDefault();
                   handleEnterLoad();
                 }
+                // Escape is intentionally left to bubble to .browser-wrapper's
+                // handleKeyDown, which closes the browser (or deselects first).
               }}
               spellcheck="false"
               autocomplete="off"

@@ -18,7 +18,7 @@
   }
 
   function handleKeyDown(e: KeyboardEvent) {
-    if (e.key === 'Escape') {
+    if (open && e.key === 'Escape') {
       dispatch('close');
     }
   }
@@ -30,6 +30,8 @@
     }
   }
 </script>
+
+<svelte:window on:keydown={handleKeyDown} />
 
 {#if open}
   <!-- Backdrop -->
