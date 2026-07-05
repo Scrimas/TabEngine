@@ -50,7 +50,10 @@ jobs:
             libssl-dev \
             libayatana-appindicator3-dev \
             librsvg2-dev \
-            squashfs-tools
+            squashfs-tools \
+            gstreamer1.0-plugins-base \
+            gstreamer1.0-plugins-good \
+            gstreamer1.0-pulseaudio
 
       - name: Install npm dependencies
         run: npm ci
