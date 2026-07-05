@@ -3270,7 +3270,7 @@ dependencies = [
 
 [[package]]
 name = "tabengine"
-version = "0.1.4"
+version = "0.1.5"
 dependencies = [
  "reqwest 0.12.28",
  "serde",
