@@ -36,10 +36,7 @@ Found a bug or something feels broken? Open an issue. Want to fix it yourself? P
 
 ## Installation notes
 
-> [!WARNING]
-> **The GitHub-prebuilt binaries are currently broken.** Until this is fixed, please build and run from source (see [Building from source](#building-from-source)) — the dev build is fully functional.
-
-Prebuilt binaries (Windows, macOS, Linux) are attached to each [release](../../releases). Heads up: they're **unsigned** — I don't pay for a Windows code-signing certificate or an Apple developer account ($99/year), so your OS will flag the app as coming from an unverified developer. Don't worry, that's expected, not a red flag. Here's how to get past it:
+Prebuilt binaries (Windows, macOS, Linux) are attached to each [release](../../releases) — working as of **v0.1.7**. Heads up: they're **unsigned** — I don't pay for a Windows code-signing certificate or an Apple developer account ($99/year), so your OS will flag the app as coming from an unverified developer. Don't worry, that's expected, not a red flag. Here's how to get past it:
 
 - **Windows (`.exe`)** — SmartScreen will show "Windows protected your PC." Click **More info** → **Run anyway**.
 - **macOS (`.dmg`)** — Gatekeeper will block the app as from an unidentified developer. Right-click the app in Applications and choose **Open**, or clear the quarantine flag manually:
@@ -50,6 +47,7 @@ Prebuilt binaries (Windows, macOS, Linux) are attached to each [release](../../r
   ```bash
   chmod +x TabEngine.AppImage
   ```
+  Requires glibc ≥ 2.39 (Ubuntu 24.04+, Fedora 40+, or any rolling-release distro). On older distros, build from source instead.
 
 ## Building from source
 
