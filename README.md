@@ -17,6 +17,7 @@ TabEngine is free, and it's staying that way — no paywalled updates, no premiu
 - Loop sections, metronome, and tempo shifting for the parts you need to slow down
 - Works fully offline once you have a file
 - No local file? Search and pull tabs straight from [Songsterr](https://www.songsterr.com/) without leaving the app — including copyright-restricted songs, via a built-in fallback downloader
+- Playlists with drag-to-reorder and auto-advance playback, plus a sortable library (by name, date added, date opened, or file type)
 
 ## Screenshots
 
