@@ -1,9 +1,10 @@
 ---
 name: Bug report
 about: Report something that's broken or not working as expected
-title: ""
-labels: ""
-assignees: ""
+title: ''
+labels: bug
+assignees: ''
+
 ---
 
 **Describe the bug**
