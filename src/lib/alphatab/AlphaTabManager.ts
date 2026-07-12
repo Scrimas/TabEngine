@@ -236,6 +236,10 @@ export function initAlphaTab(container: HTMLElement): void {
       totalTime:   e.endTime,
       currentTick: e.currentTick,
       totalTicks:  e.endTick,
+      // originalTempo reflects mid-song tempo automation at the current
+      // position (unaffected by the user's playbackSpeed multiplier, which
+      // ControlBar applies separately as effectiveBpm = tempo * playbackSpeed).
+      tempo:       e.originalTempo,
     });
   });
 
