@@ -921,6 +921,26 @@ function rowStartIndices(): number[] {
   return starts;
 }
 
+/**
+ * Scrolls the given bar's rendered row into view, replicating the exact
+ * formula alphaTab's own VerticalContinuousScrollHandler uses during
+ * playback (bar's realBounds.y + the configured scrollOffsetY). Keyboard
+ * seeks jump the tick position directly without playing, so alphaTab's
+ * built-in auto-scroll never kicks in (it only scrolls in response to
+ * playback advancing) — without this, the cursor can land off-screen with
+ * nothing bringing it back into view.
+ */
+function scrollBarIntoView(barIndex: number): void {
+  if (!api?.boundsLookup) return;
+  const bounds = api.boundsLookup.findMasterBarByIndex(barIndex);
+  if (!bounds) return;
+  const ui     = api.uiFacade;
+  const scroll = ui.getScrollContainer();
+  const elementOffset = ui.getOffset(scroll, api.container);
+  const y = bounds.realBounds.y + api.settings.player.scrollOffsetY;
+  ui.scrollToY(scroll, elementOffset.y + y, api.settings.player.scrollSpeed);
+}
+
 /** Seek to the start of the previous bar (with a small hysteresis window). */
 export function seekToPrevBar(): void {
   if (!api) return;
@@ -929,10 +949,12 @@ export function seekToPrevBar(): void {
   for (let i = barStarts.length - 1; i >= 0; i--) {
     if (barStarts[i] < currentTick - 200) {
       api.tickPosition = barStarts[i];
+      scrollBarIntoView(i);
       return;
     }
   }
   api.tickPosition = 0;
+  scrollBarIntoView(0);
 }
 
 /** Seek to the start of the next bar. */
@@ -940,42 +962,79 @@ export function seekToNextBar(): void {
   if (!api) return;
   const currentTick = get(playerStore).currentTick;
   const barStarts   = api.tickCache?.masterBars.map(b => b.start) ?? [];
-  for (const start of barStarts) {
-    if (start > currentTick + 100) {
-      api.tickPosition = start;
+  for (let i = 0; i < barStarts.length; i++) {
+    if (barStarts[i] > currentTick + 100) {
+      api.tickPosition = barStarts[i];
+      scrollBarIntoView(i);
       return;
     }
   }
 }
 
-/** Seek to the first bar of the previous rendered row (line). */
-export function seekToPrevRow(): void {
-  if (!api?.tickCache) return;
-  const rows   = rowStartIndices();
-  if (rows.length === 0) return;
-  const barIdx = currentBarIndex();
-  let lineIdx  = 0;
-  for (let i = 0; i < rows.length; i++) {
-    if (rows[i] <= barIdx) lineIdx = i;
-    else break;
+/**
+ * Returns the bar index in `rowStart..rowEnd` whose horizontal position is
+ * closest to `x` — used to keep Up/Down navigation under the same visual
+ * column instead of always snapping to the first bar of the row.
+ */
+function closestBarInRow(x: number, rowStart: number, rowEnd: number): number {
+  const lookup = api!.boundsLookup!;
+  let best = rowStart;
+  let bestDist = Infinity;
+  for (let i = rowStart; i <= rowEnd; i++) {
+    const bounds = lookup.findMasterBarByIndex(i);
+    if (!bounds) continue;
+    const barX = bounds.visualBounds.x + bounds.visualBounds.w / 2;
+    const dist = Math.abs(barX - x);
+    if (dist < bestDist) {
+      bestDist = dist;
+      best = i;
+    }
   }
-  const target = rows[Math.max(0, lineIdx - 1)];
-  api.tickPosition = api.tickCache.masterBars[target]?.start ?? 0;
+  return best;
 }
 
-/** Seek to the first bar of the next rendered row (line). */
-export function seekToNextRow(): void {
-  if (!api?.tickCache) return;
+/** Seek to the bar directly above the current position (same column, previous rendered row). */
+export function seekToPrevRow(): void {
+  if (!api?.tickCache?.masterBars.length || !api.boundsLookup) return;
   const rows   = rowStartIndices();
   if (rows.length === 0) return;
   const barIdx = currentBarIndex();
-  let lineIdx  = 0;
+  const currentBounds = api.boundsLookup.findMasterBarByIndex(barIdx);
+  if (!currentBounds) return;
+  let lineIdx = 0;
   for (let i = 0; i < rows.length; i++) {
     if (rows[i] <= barIdx) lineIdx = i;
     else break;
   }
-  const target = rows[Math.min(rows.length - 1, lineIdx + 1)];
+  if (lineIdx === 0) return;
+  const rowStart = rows[lineIdx - 1];
+  const rowEnd   = rows[lineIdx] - 1;
+  const x        = currentBounds.visualBounds.x + currentBounds.visualBounds.w / 2;
+  const target   = closestBarInRow(x, rowStart, rowEnd);
   api.tickPosition = api.tickCache.masterBars[target]?.start ?? 0;
+  scrollBarIntoView(target);
+}
+
+/** Seek to the bar directly below the current position (same column, next rendered row). */
+export function seekToNextRow(): void {
+  if (!api?.tickCache?.masterBars.length || !api.boundsLookup) return;
+  const rows   = rowStartIndices();
+  if (rows.length === 0) return;
+  const barIdx = currentBarIndex();
+  const currentBounds = api.boundsLookup.findMasterBarByIndex(barIdx);
+  if (!currentBounds) return;
+  let lineIdx = 0;
+  for (let i = 0; i < rows.length; i++) {
+    if (rows[i] <= barIdx) lineIdx = i;
+    else break;
+  }
+  if (lineIdx === rows.length - 1) return;
+  const rowStart = rows[lineIdx + 1];
+  const rowEnd   = (lineIdx + 2 < rows.length ? rows[lineIdx + 2] : api.tickCache.masterBars.length) - 1;
+  const x        = currentBounds.visualBounds.x + currentBounds.visualBounds.w / 2;
+  const target   = closestBarInRow(x, rowStart, rowEnd);
+  api.tickPosition = api.tickCache.masterBars[target]?.start ?? 0;
+  scrollBarIntoView(target);
 }
 
 // ── Seek ──────────────────────────────────────────────────────────────────────
