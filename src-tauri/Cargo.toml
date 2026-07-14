@@ -1,6 +1,6 @@
 [package]
 name        = "tabengine"
-version     = "0.2.0"
+version     = "0.2.1"
 description = "TabEngine — Guitar Tablature Player"
 authors     = ["Scrimas"]
 license     = "GPL-3.0-or-later"
