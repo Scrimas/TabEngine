@@ -75,9 +75,11 @@ export interface LibraryEntry {
   size:     number;   // bytes
   dateAdded?:  number; // unix timestamp ms — first time this path was opened/imported
   lastOpened?: number; // unix timestamp ms — most recent time this path was opened
+  title?:   string;   // score-authored title, cached when the file is first loaded
+  artist?:  string;   // score-authored artist, cached when the file is first loaded
 }
 
-export type LibrarySortField = 'name' | 'dateAdded' | 'dateOpened' | 'type';
+export type LibrarySortField = 'name' | 'artist' | 'dateAdded' | 'dateOpened' | 'type';
 
 // ── Playlists ─────────────────────────────────────────────────────────────────
 
@@ -134,6 +136,7 @@ export interface SongsterrSearchState {
   hasMore:      boolean;
   offset:       number;
   selected:     SongsterrSong | null;
+  instrument:   string | null; // Songsterr `inst` filter: 'guitar' | 'bass' | 'drums' | null (all)
 }
 
 /** Map Songsterr instrumentId ranges to human-readable categories */

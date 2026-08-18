@@ -7,7 +7,7 @@
   import { libraryStore, recordOpen } from '$lib/stores/library';
   import PlaylistSongList from './PlaylistSongList.svelte';
   import { confirmDialog } from '$lib/stores/notifications';
-  import type { Playlist, LibraryEntry } from '$lib/types';
+  import type { Playlist } from '$lib/types';
 
   export let open = false;
 
@@ -21,9 +21,11 @@
 
   $: selectedPlaylist = $playlistsStore.find(p => p.id === selectedId) ?? null;
 
-  $: songs = (selectedPlaylist?.paths ?? [])
-    .map(path => $libraryStore.entries.find(e => e.path === path))
-    .filter((e): e is LibraryEntry => !!e);
+  // Missing files stay visible as disabled rows so they can be removed.
+  $: items = (selectedPlaylist?.paths ?? []).map(path => ({
+    path,
+    entry: $libraryStore.entries.find(e => e.path === path) ?? null,
+  }));
 
   function handleKeyDown(e: KeyboardEvent) {
     if (open && e.key === 'Escape') dispatch('close');
@@ -198,7 +200,7 @@
         {:else}
           <div class="songs-header">
             <h3>{selectedPlaylist.name}</h3>
-            {#if songs.length > 0}
+            {#if items.length > 0}
               <button class="play-all-btn press" on:click={playFromStart}>
                 <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
                 Play
@@ -208,7 +210,7 @@
 
           <PlaylistSongList
             playlist={selectedPlaylist}
-            {songs}
+            {items}
             currentPath={$activeQueueStore.playlistId === selectedPlaylist.id ? $activeQueueStore.currentPath : null}
             on:play={(e) => playFrom(e.detail)}
             on:remove={(e) => handleRemoveSong(e.detail)}

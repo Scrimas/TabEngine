@@ -1,6 +1,13 @@
 <script lang="ts">
   import { createEventDispatcher, onMount, onDestroy, tick } from 'svelte';
-  import { songsterrStore, searchDebounced, loadMore, selectSong, resetSongsterr, fetchTabBytes, fetchRestrictedTabBytes } from '$lib/stores/songsterr';
+  import { songsterrStore, searchDebounced, loadMore, selectSong, resetSongsterr, fetchTabBytes, fetchRestrictedTabBytes, setInstrumentFilter } from '$lib/stores/songsterr';
+
+  const INSTRUMENT_FILTERS: { label: string; value: string | null }[] = [
+    { label: 'All',    value: null },
+    { label: 'Guitar', value: 'guitar' },
+    { label: 'Bass',   value: 'bass' },
+    { label: 'Drums',  value: 'drums' },
+  ];
   import SongsterrResultCard from './SongsterrResultCard.svelte';
   import SongsterrPreview from './SongsterrPreview.svelte';
   import type { SongsterrSong } from '$lib/types';
@@ -192,6 +199,18 @@
                 </svg>
               </button>
             {/if}
+          </div>
+
+          <!-- Instrument filter chips -->
+          <div class="inst-filters" role="group" aria-label="Filter results by instrument">
+            {#each INSTRUMENT_FILTERS as f (f.label)}
+              <button
+                class="inst-chip"
+                class:active={$songsterrStore.instrument === f.value}
+                on:click={() => setInstrumentFilter(f.value)}
+                aria-pressed={$songsterrStore.instrument === f.value}
+              >{f.label}</button>
+            {/each}
           </div>
         </div>
 
@@ -399,6 +418,34 @@
     position: relative;
     display: flex;
     align-items: center;
+  }
+
+  .inst-filters {
+    display: flex;
+    gap: 6px;
+    margin-top: 10px;
+  }
+  .inst-chip {
+    padding: 4px 12px;
+    border-radius: 99px;
+    font-size: 11.5px;
+    font-weight: 600;
+    background: transparent;
+    border: 1px solid var(--border);
+    color: var(--text-secondary);
+    cursor: pointer;
+    transition: background var(--transition), color var(--transition),
+                border-color var(--transition);
+  }
+  .inst-chip:hover {
+    background: var(--bg-hover);
+    color: var(--text-primary);
+    border-color: var(--border-hover);
+  }
+  .inst-chip.active {
+    background: var(--accent-dim);
+    color: var(--accent);
+    border-color: var(--accent-glow);
   }
 
   .search-icon {

@@ -38,6 +38,7 @@ import * as alphaTab from '@coderline/alphatab';
 import { updatePlayer, resetPlayer, speedTrainerStore } from '$lib/stores/player';
 import { toast } from '$lib/stores/notifications';
 import { setTracks } from '$lib/stores/tracks';
+import { updateEntryMeta } from '$lib/stores/library';
 import bravuraWoff2 from '@coderline/alphatab/font/Bravura.woff2?url';
 import bravuraWoff from '@coderline/alphatab/font/Bravura.woff?url';
 import bravuraOtf from '@coderline/alphatab/font/Bravura.otf?url';
@@ -83,6 +84,9 @@ let visibleTrackIndices: number[] = [];
 // Set when setVisibleTracks cleared an active loop — the loop is re-seeded on
 // the current bar once the new track subset has rendered (postRenderFinished).
 let pendingLoopReseed = false;
+// Library path of the file currently being loaded (loadFromBytes) — consumed
+// by scoreLoaded to cache the parsed title/artist onto the library entry.
+let pendingMetaPath: string | null = null;
 
 // ── Init ──────────────────────────────────────────────────────────────────────
 
@@ -323,6 +327,14 @@ export function initAlphaTab(container: HTMLElement): void {
       tuning:    track.staves[0]?.isStringed ? [...track.staves[0].tuning] : [],
     }));
     setTracks(tracks);
+
+    // Cache the score-authored title/artist onto the library entry the bytes
+    // came from (no-op for Songsterr loads, which have no file path yet).
+    if (pendingMetaPath) {
+      updateEntryMeta(pendingMetaPath, score.title ?? '', score.artist ?? '');
+      pendingMetaPath = null;
+    }
+
     container.dispatchEvent(new CustomEvent('tabengine:scoreLoaded'));
   });
 
@@ -1227,11 +1239,14 @@ export function seekToFraction(fraction: number): void {
  * The `Uint8Array` is obtained from the Tauri `read_gp_file` command which
  * reads the file in Rust and returns a JSON array that the TS side converts.
  */
-export function loadFromBytes(bytes: Uint8Array): void {
+export function loadFromBytes(bytes: Uint8Array, sourcePath: string | null = null): void {
   if (!api) {
     console.error('[AlphaTabManager] API not initialised before loadFromBytes.');
     return;
   }
+  // When the bytes came from a library file, remember its path so the
+  // scoreLoaded handler can cache the parsed title/artist onto its entry.
+  pendingMetaPath = sourcePath;
   // Load with track 0 as the initial subset: the app always starts in
   // single-track view, and passing it here means alphaTab's first render is
   // already the right one — ScoreViewer no longer triggers a second full

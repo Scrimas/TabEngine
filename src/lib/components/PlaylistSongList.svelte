@@ -9,11 +9,21 @@
   import { reorderPlaylist } from '$lib/stores/playlists';
   import type { Playlist, LibraryEntry } from '$lib/types';
 
+  interface PlaylistItem {
+    path:  string;
+    entry: LibraryEntry | null; // null = file no longer in the library (missing)
+  }
+
   export let playlist: Playlist;
-  export let songs: LibraryEntry[]; // resolved from playlist.paths, same order
+  export let items: PlaylistItem[]; // resolved from playlist.paths, same order
   export let currentPath: string | null = null;
 
   const dispatch = createEventDispatcher<{ play: string; remove: string }>();
+
+  function rowName(item: PlaylistItem): string {
+    if (item.entry) return item.entry.title || item.entry.name;
+    return item.path.split('/').pop() ?? item.path;
+  }
 
   let rowEls: (HTMLElement | null)[] = [];
   let draggingIndex: number | null = null;
@@ -35,7 +45,7 @@
     if (Math.abs(dragOffsetY) >= rowStep / 2) {
       const direction = dragOffsetY > 0 ? 1 : -1;
       const targetIndex = draggingIndex + direction;
-      if (targetIndex >= 0 && targetIndex < songs.length) {
+      if (targetIndex >= 0 && targetIndex < items.length) {
         reorderPlaylist(playlist.id, draggingIndex, targetIndex);
         draggingIndex = targetIndex;
         dragOffsetY -= direction * rowStep;
@@ -49,24 +59,28 @@
   }
 </script>
 
-{#if songs.length === 0}
+{#if items.length === 0}
   <div class="empty-state">
     <p>No songs yet. Right-click a file in the library and choose "Add to playlist".</p>
   </div>
 {:else}
   <div class="song-list" role="list">
-    {#each songs as entry, i (entry.path)}
+    {#each items as item, i (item.path)}
+      {@const missing = !item.entry}
       <!-- svelte-ignore a11y-interactive-supports-focus a11y-no-noninteractive-tabindex a11y-no-static-element-interactions -->
       <div
         class="song-row"
-        class:current={entry.path === currentPath}
+        class:current={item.path === currentPath}
         class:dragging={draggingIndex === i}
+        class:missing
         bind:this={rowEls[i]}
         style={draggingIndex === i ? `transform: translateY(${dragOffsetY}px)` : ''}
         role="button"
         tabindex="0"
-        on:click={() => dispatch('play', entry.path)}
-        on:keydown={(e) => { if (e.key === 'Enter') dispatch('play', entry.path); }}
+        aria-disabled={missing}
+        title={missing ? `File not found: ${item.path}` : undefined}
+        on:click={() => { if (!missing) dispatch('play', item.path); }}
+        on:keydown={(e) => { if (e.key === 'Enter' && !missing) dispatch('play', item.path); }}
       >
         <!-- svelte-ignore a11y-click-events-have-key-events a11y-no-static-element-interactions -->
         <span
@@ -79,13 +93,17 @@
           on:click|stopPropagation
         >⠿</span>
         <span class="song-index">{i + 1}</span>
-        <span class="song-name">{entry.name}</span>
-        <span class="song-ext">{entry.ext.toUpperCase()}</span>
+        <span class="song-name">{rowName(item)}</span>
+        {#if missing}
+          <span class="song-missing">missing</span>
+        {:else if item.entry}
+          <span class="song-ext">{item.entry.ext.toUpperCase()}</span>
+        {/if}
         <button
           class="remove-btn"
           title="Remove from playlist"
-          aria-label="Remove {entry.name} from playlist"
-          on:click|stopPropagation={() => dispatch('remove', entry.path)}
+          aria-label="Remove {rowName(item)} from playlist"
+          on:click|stopPropagation={() => dispatch('remove', item.path)}
         >
           <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
             <path d="M18 6L6 18M6 6l12 12"/>
@@ -183,6 +201,24 @@
     font-size: 9.5px;
     font-weight: 500;
     color: var(--text-muted);
+  }
+
+  .song-row.missing { cursor: default; }
+  .song-row.missing .song-name {
+    color: var(--text-muted);
+    text-decoration: line-through;
+    text-decoration-thickness: 1px;
+  }
+  .song-missing {
+    flex-shrink: 0;
+    padding: 1px 7px;
+    border-radius: 99px;
+    font-size: 9.5px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--red);
+    background: var(--red-dim);
   }
 
   .remove-btn {

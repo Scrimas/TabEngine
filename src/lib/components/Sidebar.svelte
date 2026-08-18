@@ -8,11 +8,13 @@
     renameEntry,
     removeEntry,
     importFileToLibrary,
+    mergeScannedEntries,
   } from '$lib/stores/library';
   import { settingsStore, updateSettings } from '$lib/stores/settings';
   import {
     playlistsStore, createPlaylist, addToPlaylist,
     removeFromPlaylist, startQueue, activeQueueStore,
+    setQueueRepeat, setQueueShuffle,
   } from '$lib/stores/playlists';
   import PlaylistSongList from './PlaylistSongList.svelte';
   import { toast, confirmDialog } from '$lib/stores/notifications';
@@ -24,9 +26,12 @@
   let viewMode: 'library' | 'playlist' = 'library';
 
   $: activePlaylist = $playlistsStore.find(p => p.id === $activeQueueStore.playlistId) ?? null;
-  $: activePlaylistSongs = (activePlaylist?.paths ?? [])
-    .map(path => $libraryStore.entries.find(e => e.path === path))
-    .filter((e): e is LibraryEntry => !!e);
+  // Keep unresolvable paths as explicit "missing" rows instead of silently
+  // hiding them — the user can see and remove them.
+  $: activePlaylistItems = (activePlaylist?.paths ?? []).map(path => ({
+    path,
+    entry: $libraryStore.entries.find(e => e.path === path) ?? null,
+  }));
 
   async function playActivePlaylistPath(path: string) {
     if (!activePlaylist) return;
@@ -37,18 +42,31 @@
     dispatch('load', loadPath);
   }
 
+  /** Score-authored title when known, filename otherwise. */
+  function displayName(e: LibraryEntry): string {
+    return e.title || e.name;
+  }
+
   function sortEntries(entries: LibraryEntry[], field: LibrarySortField): LibraryEntry[] {
     const copy = [...entries];
     switch (field) {
-      case 'type':       return copy.sort((a, b) => a.ext.localeCompare(b.ext) || a.name.localeCompare(b.name));
+      case 'type':       return copy.sort((a, b) => a.ext.localeCompare(b.ext) || displayName(a).localeCompare(displayName(b)));
+      case 'artist':     return copy.sort((a, b) =>
+        (a.artist ?? '￿').localeCompare(b.artist ?? '￿') || displayName(a).localeCompare(displayName(b)));
       case 'dateAdded':  return copy.sort((a, b) => (b.dateAdded  ?? 0) - (a.dateAdded  ?? 0));
       case 'dateOpened': return copy.sort((a, b) => (b.lastOpened ?? 0) - (a.lastOpened ?? 0));
-      default:           return copy.sort((a, b) => a.name.localeCompare(b.name));
+      default:           return copy.sort((a, b) => displayName(a).localeCompare(displayName(b)));
     }
   }
 
+  function matchesQuery(e: LibraryEntry, q: string): boolean {
+    return e.name.toLowerCase().includes(q)
+      || (e.title  ?? '').toLowerCase().includes(q)
+      || (e.artist ?? '').toLowerCase().includes(q);
+  }
+
   $: filtered = sortEntries(
-    $libraryStore.entries.filter(e => e.name.toLowerCase().includes(searchQuery.toLowerCase())),
+    $libraryStore.entries.filter(e => matchesQuery(e, searchQuery.toLowerCase())),
     $settingsStore.librarySortField,
   );
 
@@ -69,13 +87,24 @@
   async function openFileDialog() {
     try {
       const selected = await tauriOpen({
-        multiple: false,
+        multiple: true,
         filters: [{ name: 'Guitar Pro', extensions: ['gp', 'gp3', 'gp4', 'gp5', 'gpx'] }],
       });
       if (!selected) return;
-      const path = typeof selected === 'string' ? selected : selected[0];
-      if (!path) return;
-      await loadEntry(path);
+      const paths = Array.isArray(selected) ? selected : [selected];
+      if (paths.length === 0) return;
+
+      // Extra selections join the library; the first one loads.
+      if (paths.length > 1) {
+        const rest: LibraryEntry[] = [];
+        for (const path of paths.slice(1)) {
+          const importedPath = await importFileToLibrary(path);
+          rest.push(await invoke('file_metadata', { path: importedPath }));
+        }
+        mergeScannedEntries(rest);
+        toast('success', `Added ${paths.length} files to the library.`);
+      }
+      await loadEntry(paths[0]);
     } catch (err) {
       console.error('[Sidebar] Open dialog error:', err);
       toast('error', `Could not open file: ${err}`);
@@ -301,12 +330,43 @@
           aria-label="Sort library by"
         >
           <option value="name">Name</option>
+          <option value="artist">Artist</option>
           <option value="dateAdded">Date added</option>
           <option value="dateOpened">Date opened</option>
           <option value="type">Type</option>
         </select>
       {/if}
-      <span class="lib-count">{viewMode === 'library' ? filtered.length : activePlaylistSongs.length}</span>
+      {#if viewMode === 'playlist' && activePlaylist}
+        <button
+          class="queue-mode-btn"
+          class:active={$activeQueueStore.shuffle}
+          on:click={() => setQueueShuffle(!$activeQueueStore.shuffle)}
+          title="Shuffle (pick the next song at random)"
+          aria-pressed={$activeQueueStore.shuffle}
+          aria-label="Shuffle"
+        >
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+               stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M16 3h5v5"/><path d="M4 20L21 3"/>
+            <path d="M21 16v5h-5"/><path d="M15 15l6 6"/><path d="M4 4l5 5"/>
+          </svg>
+        </button>
+        <button
+          class="queue-mode-btn"
+          class:active={$activeQueueStore.repeat}
+          on:click={() => setQueueRepeat(!$activeQueueStore.repeat)}
+          title="Repeat playlist (start over after the last song)"
+          aria-pressed={$activeQueueStore.repeat}
+          aria-label="Repeat playlist"
+        >
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+               stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M17 2l4 4-4 4"/><path d="M3 11v-1a4 4 0 0 1 4-4h14"/>
+            <path d="M7 22l-4-4 4-4"/><path d="M21 13v1a4 4 0 0 1-4 4H3"/>
+          </svg>
+        </button>
+      {/if}
+      <span class="lib-count">{viewMode === 'library' ? filtered.length : activePlaylistItems.length}</span>
     </div>
   </div>
 
@@ -319,7 +379,7 @@
     {:else}
       <PlaylistSongList
         playlist={activePlaylist}
-        songs={activePlaylistSongs}
+        items={activePlaylistItems}
         currentPath={$activeQueueStore.currentPath}
         on:play={(e) => playActivePlaylistPath(e.detail)}
         on:remove={(e) => activePlaylist && removeFromPlaylist(activePlaylist.id, e.detail)}
@@ -406,13 +466,16 @@
                 aria-label="Rename file"
               />
             {:else}
-              <div class="file-name">{entry.name}</div>
+              <div class="file-name">{displayName(entry)}</div>
             {/if}
             <div class="file-meta">
               <span class="file-fmt"
                     style="color:{color};background:color-mix(in srgb,{color} 13%,transparent);">
                 {entry.ext.toUpperCase()}
               </span>
+              {#if entry.artist}
+                <span class="file-artist">{entry.artist}</span>
+              {/if}
             </div>
           </div>
 
@@ -640,6 +703,31 @@
     gap: 6px;
   }
 
+  .queue-mode-btn {
+    width: 24px;
+    height: 24px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 7px;
+    background: transparent;
+    border: 1px solid var(--border);
+    color: var(--text-secondary);
+    cursor: pointer;
+    transition: background var(--transition), color var(--transition),
+                border-color var(--transition);
+  }
+  .queue-mode-btn:hover {
+    background: var(--bg-hover);
+    color: var(--text-primary);
+    border-color: var(--border-hover);
+  }
+  .queue-mode-btn.active {
+    background: var(--accent-dim);
+    color: var(--accent);
+    border-color: var(--accent-glow);
+  }
+
   .lib-count {
     font-family: var(--font-mono);
     font-size: 10.5px;
@@ -791,6 +879,15 @@
     overflow: hidden;
     text-overflow: ellipsis;
     line-height: 1.3;
+  }
+
+  .file-artist {
+    font-size: 11px;
+    color: var(--text-muted);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    min-width: 0;
   }
   .file-meta {
     display: flex;

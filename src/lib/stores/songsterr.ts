@@ -16,6 +16,7 @@ const DEFAULT_STATE: SongsterrSearchState = {
   hasMore:     true,
   offset:      0,
   selected:    null,
+  instrument:  null,
 };
 
 export const songsterrStore = writable<SongsterrSearchState>({ ...DEFAULT_STATE });
@@ -86,7 +87,7 @@ async function executeSearch(
   try {
     const results: SongsterrSong[] = await invoke('songsterr_search', {
       query,
-      instrument: null,
+      instrument: get(songsterrStore).instrument,
       size: PAGE_SIZE,
       from,
     });
@@ -110,6 +111,30 @@ async function executeSearch(
       error:       String(err),
     }));
   }
+}
+
+/**
+ * Change the instrument filter (`'guitar' | 'bass' | 'drums' | null`) and
+ * re-run the current search from the first page.
+ */
+export function setInstrumentFilter(instrument: string | null): void {
+  const state = get(songsterrStore);
+  if (state.instrument === instrument) return;
+
+  searchGeneration++; // drop any in-flight response for the old filter
+  songsterrStore.update(s => ({
+    ...s,
+    instrument,
+    results: [],
+    offset: 0,
+    hasMore: true,
+    error: null,
+  }));
+
+  const trimmed = state.query.trim();
+  if (!trimmed) return;
+  songsterrStore.update(s => ({ ...s, isSearching: true }));
+  executeSearch(trimmed, 0, true);
 }
 
 // ── Selection ────────────────────────────────────────────────────────────────

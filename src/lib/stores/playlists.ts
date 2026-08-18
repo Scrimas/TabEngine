@@ -114,21 +114,34 @@ export function removePathFromPlaylists(path: string): void {
 export interface ActiveQueue {
   playlistId:  string | null;
   currentPath: string | null;
+  repeat:      boolean; // wrap to the first song after the last one finishes
+  shuffle:     boolean; // pick the next song at random (repeat is implied)
 }
 
-export const activeQueueStore = writable<ActiveQueue>({ playlistId: null, currentPath: null });
+export const activeQueueStore = writable<ActiveQueue>({
+  playlistId: null, currentPath: null, repeat: false, shuffle: false,
+});
 
 /** Start a playlist playing from a given path (defaults to its first song). Returns the path to load. */
 export function startQueue(playlistId: string, fromPath?: string): string | null {
   const playlist = get(playlistsStore).find(p => p.id === playlistId);
   if (!playlist || playlist.paths.length === 0) return null;
   const path = fromPath ?? playlist.paths[0];
-  activeQueueStore.set({ playlistId, currentPath: path });
+  activeQueueStore.update(q => ({ ...q, playlistId, currentPath: path }));
   return path;
 }
 
 export function clearQueue(): void {
-  activeQueueStore.set({ playlistId: null, currentPath: null });
+  // Keep the repeat/shuffle preferences — only the active playlist resets.
+  activeQueueStore.update(q => ({ ...q, playlistId: null, currentPath: null }));
+}
+
+export function setQueueRepeat(repeat: boolean): void {
+  activeQueueStore.update(q => ({ ...q, repeat }));
+}
+
+export function setQueueShuffle(shuffle: boolean): void {
+  activeQueueStore.update(q => ({ ...q, shuffle }));
 }
 
 /**
@@ -152,8 +165,18 @@ export function peekNextInQueue(): string | null {
   const queue = get(activeQueueStore);
   if (!queue.playlistId || !queue.currentPath) return null;
   const playlist = get(playlistsStore).find(p => p.id === queue.playlistId);
-  if (!playlist) return null;
+  if (!playlist || playlist.paths.length === 0) return null;
+
+  if (queue.shuffle) {
+    // Continuous random play: any song except the one that just finished
+    // (falls back to repeating it when the playlist has a single song).
+    const others = playlist.paths.filter(p => p !== queue.currentPath);
+    if (others.length === 0) return queue.repeat ? queue.currentPath : null;
+    return others[Math.floor(Math.random() * others.length)];
+  }
+
   const idx = playlist.paths.indexOf(queue.currentPath);
-  if (idx === -1 || idx + 1 >= playlist.paths.length) return null;
-  return playlist.paths[idx + 1];
+  if (idx === -1) return null;
+  if (idx + 1 < playlist.paths.length) return playlist.paths[idx + 1];
+  return queue.repeat ? playlist.paths[0] : null;
 }

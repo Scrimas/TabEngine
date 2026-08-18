@@ -17,7 +17,7 @@
   import { invoke } from '@tauri-apps/api/core';
   import { getCurrentWebview } from '@tauri-apps/api/webview';
   import type { UnlistenFn } from '@tauri-apps/api/event';
-  import { importFileToLibrary, recordOpen } from '$lib/stores/library';
+  import { importFileToLibrary, recordOpen, mergeScannedEntries } from '$lib/stores/library';
   import { toast } from '$lib/stores/notifications';
   import { noteLoadedPath, peekNextInQueue } from '$lib/stores/playlists';
   import { settingsStore, updateSettings } from '$lib/stores/settings';
@@ -149,8 +149,7 @@
         isDragOver = true;
       } else if (event.payload.type === 'drop') {
         isDragOver = false;
-        const path = event.payload.paths[0];
-        if (path) handleDroppedPath(path);
+        if (event.payload.paths.length > 0) handleDroppedPaths(event.payload.paths);
       } else {
         isDragOver = false;
       }
@@ -179,7 +178,7 @@
     try {
       // read_gp_file returns a raw-bytes IPC response (ArrayBuffer), not JSON
       const buf: ArrayBuffer = await invoke('read_gp_file', { path });
-      loadFromBytes(new Uint8Array(buf));
+      loadFromBytes(new Uint8Array(buf), path);
       noteLoadedPath(path);
       updateSettings({ lastOpenedFile: path });
     } catch (err) {
@@ -193,21 +192,47 @@
   // so those never fire here. Use the native event instead.
   let unlistenDragDrop: UnlistenFn | null = null;
 
-  async function handleDroppedPath(path: string) {
-    const ext = path.split('.').pop()?.toLowerCase() ?? '';
-    if (!['gp', 'gp3', 'gp4', 'gp5', 'gpx'].includes(ext)) {
-      toast('info', `"${path.split('/').pop()}" is not a Guitar Pro file (.gp, .gp3, .gp4, .gp5, .gpx).`);
+  async function handleDroppedPaths(paths: string[]) {
+    const isGp = (p: string) =>
+      ['gp', 'gp3', 'gp4', 'gp5', 'gpx'].includes(p.split('.').pop()?.toLowerCase() ?? '');
+    const gpPaths = paths.filter(isGp);
+
+    if (gpPaths.length === 0) {
+      toast('info', `Not a Guitar Pro file (.gp, .gp3, .gp4, .gp5, .gpx).`);
       return;
     }
-    scoreReady = false;
-    try {
-      const importedPath = await importFileToLibrary(path);
-      const meta: LibraryEntry = await invoke('file_metadata', { path: importedPath });
-      recordOpen(meta);
-      await loadFile(importedPath);
-    } catch (err) {
-      reportLoadFailure('Failed to open dropped file', err);
+    if (gpPaths.length < paths.length) {
+      toast('info', `Skipped ${paths.length - gpPaths.length} non-Guitar-Pro file(s).`);
     }
+
+    // Import every dropped file into the library; the first one gets loaded.
+    scoreReady = false;
+    const imported: LibraryEntry[] = [];
+    let lastError: unknown = null;
+    for (const path of gpPaths) {
+      try {
+        const importedPath = await importFileToLibrary(path);
+        const meta: LibraryEntry = await invoke('file_metadata', { path: importedPath });
+        imported.push(meta);
+      } catch (err) {
+        lastError = err;
+        console.error('[ScoreViewer] Dropped file import failed:', err);
+      }
+    }
+
+    if (imported.length === 0) {
+      reportLoadFailure('Failed to open dropped file', lastError ?? 'import failed');
+      return;
+    }
+
+    // Only the file that actually loads counts as "opened"; the rest are
+    // merged into the library list without touching the current selection.
+    recordOpen(imported[0]);
+    if (imported.length > 1) mergeScannedEntries(imported.slice(1));
+    if (gpPaths.length > 1) {
+      toast('success', `Added ${imported.length} of ${gpPaths.length} files to the library.`);
+    }
+    await loadFile(imported[0].path);
   }
 </script>
 

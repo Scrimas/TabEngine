@@ -23,7 +23,7 @@
   import { invoke } from '@tauri-apps/api/core';
   import {
     libraryStore, recordOpen, importFileToLibrary,
-    resolveLibraryDir, saveBytesToLibrary,
+    resolveLibraryDir, saveBytesToLibrary, mergeScannedEntries,
   } from '$lib/stores/library';
   import { settingsStore, updateSettings } from '$lib/stores/settings';
   import { toast } from '$lib/stores/notifications';
@@ -176,16 +176,26 @@
   async function openFileViaDialog() {
     try {
       const selected = await tauriOpen({
-        multiple: false,
+        multiple: true,
         filters: [{ name: 'Guitar Pro', extensions: ['gp', 'gp3', 'gp4', 'gp5', 'gpx'] }],
       });
       if (!selected) return;
-      const path = typeof selected === 'string' ? selected : selected[0];
-      if (!path) return;
-      const importedPath = await importFileToLibrary(path);
-      const meta: LibraryEntry = await invoke('file_metadata', { path: importedPath });
-      recordOpen(meta);
-      await scoreViewer?.loadFile(importedPath);
+      const paths = Array.isArray(selected) ? selected : [selected];
+      if (paths.length === 0) return;
+
+      const imported: LibraryEntry[] = [];
+      for (const path of paths) {
+        const importedPath = await importFileToLibrary(path);
+        const meta: LibraryEntry = await invoke('file_metadata', { path: importedPath });
+        imported.push(meta);
+      }
+      // The first selection loads; any others just join the library.
+      recordOpen(imported[0]);
+      if (imported.length > 1) {
+        mergeScannedEntries(imported.slice(1));
+        toast('success', `Added ${imported.length} files to the library.`);
+      }
+      await scoreViewer?.loadFile(imported[0].path);
     } catch (err) {
       console.error('[App] Dialog open error:', err);
       toast('error', `Could not open file: ${err}`);

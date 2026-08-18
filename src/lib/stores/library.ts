@@ -54,6 +54,52 @@ export function setLibrary(entries: LibraryEntry[]): void {
   libraryStore.update(state => ({ ...state, entries }));
 }
 
+/**
+ * Cache score-authored metadata (title/artist) onto a library entry once its
+ * file has actually been parsed — lets the sidebar show "Title — Artist"
+ * instead of just the filename.
+ */
+export function updateEntryMeta(path: string, title: string, artist: string): void {
+  libraryStore.update(state => {
+    let changed = false;
+    const t = title.trim() || undefined;
+    const a = artist.trim() || undefined;
+    const entries = state.entries.map(e => {
+      if (e.path !== path || (e.title === t && e.artist === a)) return e;
+      changed = true;
+      return { ...e, title: t, artist: a };
+    });
+    if (!changed) return state;
+    saveRecent(entries);
+    return { ...state, entries };
+  });
+}
+
+/**
+ * Merge a folder-scan result into the library without dropping metadata on
+ * entries that are already known. Returns the number of newly added files.
+ */
+export function mergeScannedEntries(scanned: LibraryEntry[]): number {
+  let added = 0;
+  libraryStore.update(state => {
+    const byPath = new Map(state.entries.map(e => [e.path, e]));
+    const ts = Date.now();
+    for (const s of scanned) {
+      const existing = byPath.get(s.path);
+      if (existing) {
+        byPath.set(s.path, { ...existing, name: s.name, ext: s.ext, size: s.size });
+      } else {
+        byPath.set(s.path, { ...s, dateAdded: ts });
+        added++;
+      }
+    }
+    const entries = [...byPath.values()];
+    saveRecent(entries);
+    return { ...state, entries };
+  });
+  return added;
+}
+
 export function setCurrentSongsterr(song: SongsterrSong | null, bytes: Uint8Array | null): void {
   libraryStore.update(state => ({
     ...state,

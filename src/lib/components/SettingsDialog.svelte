@@ -1,8 +1,11 @@
 <script lang="ts">
   import { createEventDispatcher } from 'svelte';
+  import { open as tauriOpen } from '@tauri-apps/plugin-dialog';
+  import { invoke } from '@tauri-apps/api/core';
   import { settingsStore, updateSettings } from '$lib/stores/settings';
-  import { libraryStore, setLibrary } from '$lib/stores/library';
+  import { setLibrary, mergeScannedEntries, resolveLibraryDir } from '$lib/stores/library';
   import { toast, confirmDialog } from '$lib/stores/notifications';
+  import type { LibraryEntry } from '$lib/types';
 
   export let open = false;
 
@@ -21,6 +24,41 @@
   function handleKeyDown(e: KeyboardEvent) {
     if (open && e.key === 'Escape') {
       dispatch('close');
+    }
+  }
+
+  // ── Library folder ─────────────────────────────────────────────────────────
+  let scanning = false;
+
+  async function chooseLibraryDir() {
+    try {
+      const selected = await tauriOpen({ directory: true, multiple: false });
+      if (!selected || typeof selected !== 'string') return;
+      updateSettings({ libraryDir: selected });
+      toast('success', 'Library folder updated.');
+    } catch (err) {
+      toast('error', `Could not choose folder: ${err}`);
+    }
+  }
+
+  function resetLibraryDir() {
+    updateSettings({ libraryDir: null });
+    toast('info', 'Library folder reset to the app data directory.');
+  }
+
+  async function scanLibraryFolder() {
+    if (scanning) return;
+    scanning = true;
+    try {
+      const dir = await resolveLibraryDir();
+      if (!dir) throw new Error('No library folder is configured.');
+      const found: LibraryEntry[] = await invoke('scan_directory_for_gp', { dir });
+      const added = mergeScannedEntries(found);
+      toast('success', `Scan complete — ${found.length} Guitar Pro file${found.length === 1 ? '' : 's'} found, ${added} new.`);
+    } catch (err) {
+      toast('error', `Scan failed: ${err}`);
+    } finally {
+      scanning = false;
     }
   }
 
@@ -102,15 +140,39 @@
           </section>
         {:else if activeTab === 'library'}
           <section class="settings-section">
-            <h2>Library Administration</h2>
+            <h2>Library</h2>
 
             <div class="settings-row">
               <div class="setting-label">
-                <span class="title">Clear Recents</span>
-                <span class="desc">Flush recently opened items and scan caches.</span>
+                <span class="title">Library folder</span>
+                <span class="desc">New and downloaded files are stored here.
+                  Currently: <code class="dir-path">{$settingsStore.libraryDir ?? 'app data folder (default)'}</code></span>
+              </div>
+              <div class="row-actions">
+                {#if $settingsStore.libraryDir}
+                  <button class="action-btn press" on:click={resetLibraryDir}>Reset</button>
+                {/if}
+                <button class="action-btn press" on:click={chooseLibraryDir}>Choose…</button>
+              </div>
+            </div>
+
+            <div class="settings-row">
+              <div class="setting-label">
+                <span class="title">Scan library folder</span>
+                <span class="desc">Find every Guitar Pro file in the library folder (including subfolders) and add it to the list.</span>
+              </div>
+              <button class="action-btn press" on:click={scanLibraryFolder} disabled={scanning}>
+                {scanning ? 'Scanning…' : 'Scan'}
+              </button>
+            </div>
+
+            <div class="settings-row">
+              <div class="setting-label">
+                <span class="title">Clear library list</span>
+                <span class="desc">Empties the sidebar file list. No files on disk are touched.</span>
               </div>
               <button class="action-btn danger press" on:click={clearRecentFiles}>
-                Flush Cache
+                Clear list
               </button>
             </div>
           </section>
@@ -303,6 +365,35 @@
     font-weight: 600 !important;
     cursor: pointer !important;
     transition: var(--transition) !important;
+  }
+
+  .action-btn:not(.danger) {
+    background: var(--bg-elevated) !important;
+    border: 1px solid var(--border) !important;
+    color: var(--text-secondary) !important;
+  }
+  .action-btn:not(.danger):hover:not(:disabled) {
+    background: var(--bg-hover) !important;
+    color: var(--text-primary) !important;
+    border-color: var(--border-hover) !important;
+  }
+  .action-btn:disabled {
+    opacity: 0.5 !important;
+    cursor: default !important;
+  }
+
+  .row-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-shrink: 0;
+  }
+
+  .dir-path {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: var(--text-secondary);
+    word-break: break-all;
   }
 
   .action-btn.danger {
