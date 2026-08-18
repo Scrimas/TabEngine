@@ -18,6 +18,7 @@
   import { getCurrentWebview } from '@tauri-apps/api/webview';
   import type { UnlistenFn } from '@tauri-apps/api/event';
   import { importFileToLibrary, recordOpen } from '$lib/stores/library';
+  import { toast } from '$lib/stores/notifications';
   import { noteLoadedPath, peekNextInQueue } from '$lib/stores/playlists';
   import type { LibraryEntry } from '$lib/types';
   import { canvasToViewport } from '$lib/alphatab/canvasCoords';
@@ -173,7 +174,7 @@
   function reportLoadFailure(message: string, err: unknown): void {
     console.error(`[ScoreViewer] ${message}:`, err);
     scoreReady = true; // dismiss the loading overlay so the UI isn't stuck
-    alert(`${message}: ${err}`);
+    toast('error', `${message}: ${err}`);
   }
 
   export async function loadFile(path: string): Promise<void> {
@@ -197,7 +198,10 @@
 
   async function handleDroppedPath(path: string) {
     const ext = path.split('.').pop()?.toLowerCase() ?? '';
-    if (!['gp', 'gp3', 'gp4', 'gp5', 'gpx'].includes(ext)) return;
+    if (!['gp', 'gp3', 'gp4', 'gp5', 'gpx'].includes(ext)) {
+      toast('info', `"${path.split('/').pop()}" is not a Guitar Pro file (.gp, .gp3, .gp4, .gp5, .gpx).`);
+      return;
+    }
     scoreReady = false;
     try {
       const importedPath = await importFileToLibrary(path);

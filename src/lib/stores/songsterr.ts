@@ -2,6 +2,7 @@
 
 import { writable, get } from 'svelte/store';
 import { invoke } from '@tauri-apps/api/core';
+import { toast } from '$lib/stores/notifications';
 import type { SongsterrSearchState, SongsterrSong } from '$lib/types';
 
 const PAGE_SIZE = 20;
@@ -248,6 +249,13 @@ export async function fetchRestrictedTabBytes(songUrl: string, songTitle: string
 
     if (fetchedRevisions.length === 0) {
       throw new Error('Failed to fetch any revision payloads from Songsterr CDNs');
+    }
+    if (fetchedRevisions.length < tracksToFetch.length) {
+      // Don't present a partial transcription as the full song silently.
+      toast(
+        'warning',
+        `${tracksToFetch.length - fetchedRevisions.length} of ${tracksToFetch.length} tracks could not be fetched — the loaded tab is incomplete.`,
+      );
     }
 
     // 4. Run the local alphaTab converter to generate the GP7 binary

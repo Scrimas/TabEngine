@@ -134,6 +134,13 @@
         </svg>
         <span>This tab is unpublished/private.</span>
       </div>
+    {:else if song.restrictionStatus === 'error'}
+      <div class="restriction-box warning">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="12" cy="12" r="9"/><path d="M12 8v5M12 16.5v.01"/>
+        </svg>
+        <span>Couldn't check availability — Songsterr may be unreachable. Loading may still work.</span>
+      </div>
     {:else if song.restrictionStatus === 'unrestricted'}
       <div class="restriction-box success">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">

@@ -36,6 +36,7 @@
 // Import alphaTab as a namespace so we can access all sub-types.
 import * as alphaTab from '@coderline/alphatab';
 import { updatePlayer, resetPlayer } from '$lib/stores/player';
+import { toast } from '$lib/stores/notifications';
 import { setTracks } from '$lib/stores/tracks';
 import bravuraWoff2 from '@coderline/alphatab/font/Bravura.woff2?url';
 import bravuraWoff from '@coderline/alphatab/font/Bravura.woff?url';
@@ -305,8 +306,11 @@ export function initAlphaTab(container: HTMLElement): void {
     container.dispatchEvent(new CustomEvent('tabengine:postRenderFinished'));
   });
 
-  // 6b. Any alphaTab error (incl. unparseable files) — dismiss the loading overlay.
-  api.error.on(() => {
+  // 6b. Any alphaTab error (incl. unparseable files) — dismiss the loading
+  //     overlay and tell the user what went wrong instead of failing silently.
+  api.error.on((error) => {
+    console.error('[AlphaTabManager] alphaTab error:', error);
+    toast('error', `Score error: ${(error as Error)?.message ?? error}`);
     container.dispatchEvent(new CustomEvent('tabengine:scoreLoadFailed'));
   });
 

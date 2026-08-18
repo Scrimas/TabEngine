@@ -15,6 +15,7 @@
     removeFromPlaylist, startQueue, activeQueueStore,
   } from '$lib/stores/playlists';
   import PlaylistSongList from './PlaylistSongList.svelte';
+  import { toast, confirmDialog } from '$lib/stores/notifications';
   import type { LibraryEntry, LibrarySortField } from '$lib/types';
 
   const dispatch = createEventDispatcher<{ load: string; 'open-browser': void; 'open-playlists': void }>();
@@ -77,6 +78,7 @@
       await loadEntry(path);
     } catch (err) {
       console.error('[Sidebar] Open dialog error:', err);
+      toast('error', `Could not open file: ${err}`);
     }
   }
 
@@ -88,6 +90,7 @@
       dispatch('load', importedPath);
     } catch (err) {
       console.error('[Sidebar] load error:', err);
+      toast('error', `Could not load file: ${err}`);
     }
   }
 
@@ -170,13 +173,19 @@
     if (!contextMenu) return;
     const entry = contextMenu.entry;
     closeContextMenu();
-    const yes = confirm(`Delete "${entry.name}" from disk?\nThis cannot be undone.`);
+    const yes = await confirmDialog({
+      title: 'Delete file from disk?',
+      message: `"${entry.name}" will be permanently deleted.\nThis cannot be undone.`,
+      confirmLabel: 'Delete',
+      danger: true,
+    });
     if (!yes) return;
     try {
       await invoke('delete_gp_file', { path: entry.path });
       removeEntry(entry.path);
+      toast('success', `Deleted "${entry.name}".`);
     } catch (err) {
-      alert(`Could not delete file: ${err}`);
+      toast('error', `Could not delete file: ${err}`);
     }
   }
 
@@ -194,7 +203,11 @@
       renameEntry(entry.path, newEntry);
     } catch (err) {
       console.error('[Sidebar] rename error:', err);
-      alert(`Could not rename: ${err}`);
+      toast('error', `Could not rename: ${err}`);
+      // Keep the edit open with the typed name so the user can correct it
+      // instead of silently discarding their input.
+      renameInputEl?.focus();
+      return;
     }
     editingPath = null;
     editingName = '';

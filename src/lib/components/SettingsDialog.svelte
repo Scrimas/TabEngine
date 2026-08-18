@@ -2,6 +2,7 @@
   import { createEventDispatcher } from 'svelte';
   import { settingsStore, updateSettings } from '$lib/stores/settings';
   import { libraryStore, setLibrary } from '$lib/stores/library';
+  import { toast, confirmDialog } from '$lib/stores/notifications';
 
   export let open = false;
 
@@ -23,11 +24,17 @@
     }
   }
 
-  function clearRecentFiles() {
-    if (confirm('Are you sure you want to clear your recently opened files list?')) {
-      localStorage.removeItem('tabengine:recent');
-      setLibrary([]);
-    }
+  async function clearRecentFiles() {
+    const yes = await confirmDialog({
+      title: 'Clear library list?',
+      message: 'This clears the sidebar file list (no files on disk are touched). Files can be re-added by opening them or scanning the library folder.',
+      confirmLabel: 'Clear list',
+      danger: true,
+    });
+    if (!yes) return;
+    localStorage.removeItem('tabengine:recent');
+    setLibrary([]);
+    toast('success', 'Library list cleared.');
   }
 </script>
 

@@ -6,6 +6,7 @@
   } from '$lib/stores/playlists';
   import { libraryStore, recordOpen } from '$lib/stores/library';
   import PlaylistSongList from './PlaylistSongList.svelte';
+  import { confirmDialog } from '$lib/stores/notifications';
   import type { Playlist, LibraryEntry } from '$lib/types';
 
   export let open = false;
@@ -58,8 +59,13 @@
     editingName = '';
   }
 
-  function handleDelete(p: Playlist) {
-    const yes = confirm(`Delete playlist "${p.name}"? This only removes the playlist, not the songs.`);
+  async function handleDelete(p: Playlist) {
+    const yes = await confirmDialog({
+      title: 'Delete playlist?',
+      message: `"${p.name}" will be deleted. This only removes the playlist, not the songs.`,
+      confirmLabel: 'Delete',
+      danger: true,
+    });
     if (!yes) return;
     deletePlaylist(p.id);
     if (selectedId === p.id) selectedId = $playlistsStore.find(x => x.id !== p.id)?.id ?? null;

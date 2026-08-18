@@ -8,6 +8,8 @@
   import SongsterrBrowser from '$lib/components/SongsterrBrowser.svelte';
   import SettingsDialog   from '$lib/components/SettingsDialog.svelte';
   import PlaylistsView    from '$lib/components/PlaylistsView.svelte';
+  import Toasts           from '$lib/components/Toasts.svelte';
+  import ConfirmDialog    from '$lib/components/ConfirmDialog.svelte';
 
   import {
     playPause, stop, seekToPrevBar, seekToNextBar, seekToPrevRow, seekToNextRow,
@@ -21,6 +23,7 @@
     resolveLibraryDir, saveBytesToLibrary,
   } from '$lib/stores/library';
   import { settingsStore, updateSettings } from '$lib/stores/settings';
+  import { toast } from '$lib/stores/notifications';
   import type { LibraryEntry } from '$lib/types';
 
   let sidebarOpen   = true;
@@ -107,9 +110,10 @@
       // Collision-safe: never silently overwrites an existing library file
       const meta = await saveBytesToLibrary(destDir, `${stem}.gp5`, bytes);
       recordOpen(meta);
+      toast('success', `Saved "${meta.name}" to the library.`);
     } catch (err) {
       console.error('[App] Quick save file error:', err);
-      alert(`Failed to save file: ${err}`);
+      toast('error', `Failed to save file: ${err}`);
     }
   }
 
@@ -129,6 +133,7 @@
       await scoreViewer?.loadFile(importedPath);
     } catch (err) {
       console.error('[App] Dialog open error:', err);
+      toast('error', `Could not open file: ${err}`);
     }
   }
 
@@ -257,6 +262,8 @@
   <Mixer />
 </div>
 
+<Toasts />
+<ConfirmDialog />
 <SongsterrBrowser open={browserOpen} on:close={() => browserOpen = false} />
 <SettingsDialog open={settingsOpen} on:close={() => settingsOpen = false} />
 <PlaylistsView
