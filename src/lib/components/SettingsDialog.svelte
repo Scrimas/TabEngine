@@ -95,24 +95,8 @@
 
             <div class="settings-row">
               <div class="setting-label">
-                <span class="title">Count-In Bars</span>
-                <span class="desc">Number of empty bars to count in before starting playback.</span>
-              </div>
-              <div class="option-picker">
-                <button
-                  class="pick-opt"
-                  class:selected={$settingsStore.countInBars === 1}
-                  on:click={() => updateSettings({ countInBars: 1 })}
-                >
-                  1 Bar
-                </button>
-                <button
-                  class="pick-opt"
-                  class:selected={$settingsStore.countInBars === 2}
-                  on:click={() => updateSettings({ countInBars: 2 })}
-                >
-                  2 Bars
-                </button>
+                <span class="title">Playback controls</span>
+                <span class="desc">Tempo, metronome, count-in, zoom and the speed trainer are set from the control bar and persist automatically.</span>
               </div>
             </div>
           </section>
@@ -308,36 +292,6 @@
   }
 
   /* ── Interactive Input Widgets ───────────────────────────────────────────── */
-
-  /* Option pickers */
-  .option-picker {
-    display: flex !important;
-    background: rgba(0, 0, 0, 0.05) !important;
-    border-radius: var(--radius) !important;
-    padding: 3px !important;
-  }
-
-  .pick-opt {
-    padding: 6px 14px !important;
-    border: none !important;
-    background: transparent !important;
-    color: var(--text-secondary) !important;
-    font-size: 13px !important;
-    font-weight: 600 !important;
-    border-radius: var(--radius-sm) !important;
-    cursor: pointer !important;
-    transition: var(--transition) !important;
-  }
-
-  .pick-opt:hover {
-    color: var(--text-primary) !important;
-  }
-
-  .pick-opt.selected {
-    background: var(--bg-elevated) !important;
-    color: var(--accent) !important;
-    box-shadow: var(--shadow-sm) !important;
-  }
 
   /* Button Actions */
   .action-btn {

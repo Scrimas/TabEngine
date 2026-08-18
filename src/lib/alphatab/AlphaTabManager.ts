@@ -35,7 +35,7 @@
 
 // Import alphaTab as a namespace so we can access all sub-types.
 import * as alphaTab from '@coderline/alphatab';
-import { updatePlayer, resetPlayer } from '$lib/stores/player';
+import { updatePlayer, resetPlayer, speedTrainerStore } from '$lib/stores/player';
 import { toast } from '$lib/stores/notifications';
 import { setTracks } from '$lib/stores/tracks';
 import bravuraWoff2 from '@coderline/alphatab/font/Bravura.woff2?url';
@@ -54,7 +54,6 @@ import { getInstrumentName } from '$lib/utils/generalMidi';
 let api:        alphaTab.AlphaTabApi | null = null;
 let viewportEl: HTMLElement          | null = null;
 let metronomeVolumeLimit = 80;
-let countInBarLimit = 1;
 
 // Same value as Settings.display.systemPaddingBottom below — the blank
 // breathing room reserved below each system so the detached rhythm strip
@@ -251,6 +250,7 @@ export function initAlphaTab(container: HTMLElement): void {
   //    Event type is PositionChangedEventArgs (not exported directly from
   //    the alphaTab namespace, so we let TypeScript infer it).
   api.playerPositionChanged.on((e) => {
+    maybeAdvanceSpeedTrainer(e.currentTick);
     updatePlayer({
       currentTime: e.currentTime,
       totalTime:   e.endTime,
@@ -588,9 +588,39 @@ export function setMetronomeVolumeLimit(volume: number): void {
   api.countInVolume = countIn ? (metronomeVolumeLimit / 100) : 0;
 }
 
-export function setCountInBarLimit(bars: number): void {
-  countInBarLimit = bars;
-  // Not supported by alphaTab natively, keep as no-op.
+// ── Speed trainer ─────────────────────────────────────────────────────────────
+
+// Last tick seen by playerPositionChanged — used to detect a loop wrap
+// (position jumping backwards to the loop start while looping).
+let lastTrainerTick = 0;
+
+/** Switch the trainer on/off. Enabling immediately applies the start speed. */
+export function setSpeedTrainerEnabled(enabled: boolean): void {
+  speedTrainerStore.update(t => ({ ...t, enabled }));
+  if (enabled) {
+    const t = get(speedTrainerStore);
+    setPlaybackSpeed(t.startPct / 100);
+  }
+}
+
+/** Called on every position tick: bump speed by stepPct after each loop pass. */
+function maybeAdvanceSpeedTrainer(currentTick: number): void {
+  const prevTick = lastTrainerTick;
+  lastTrainerTick = currentTick;
+
+  const t = get(speedTrainerStore);
+  if (!t.enabled || !api || !api.isLooping || !get(playerStore).isPlaying) return;
+
+  // A wrap = the position jumped backwards to (near) the loop start. One
+  // quarter note (960 ticks) of slack absorbs event-timing jitter without
+  // matching ordinary forward progress.
+  const startTick = api.playbackRange?.startTick ?? 0;
+  if (prevTick > currentTick && currentTick <= startTick + 960) {
+    const currentPct = Math.round(get(playerStore).playbackSpeed * 100);
+    if (currentPct < t.targetPct) {
+      setPlaybackSpeed(Math.min(t.targetPct, currentPct + t.stepPct) / 100);
+    }
+  }
 }
 
 function applyThemeColors(target: alphaTab.AlphaTabApi, dark: boolean): void {
@@ -1115,6 +1145,40 @@ export function seekToNextRow(): void {
   const target   = closestBarInRow(x, rowStart, rowEnd);
   api.tickPosition = firstTickOfModelBar(target);
   scrollBarIntoView(target);
+}
+
+// ── Go to bar / section ───────────────────────────────────────────────────────
+
+export interface ScoreSection {
+  name:      string;
+  barIndex:  number; // model index (0-based)
+  barNumber: number; // 1-based, for display
+}
+
+/** Section markers in the loaded score, in bar order (empty if none). */
+export function getScoreSections(): ScoreSection[] {
+  if (!api?.score) return [];
+  const out: ScoreSection[] = [];
+  for (const mb of api.score.masterBars) {
+    if (mb.section) {
+      const name = mb.section.text || mb.section.marker || `Bar ${mb.index + 1}`;
+      out.push({ name, barIndex: mb.index, barNumber: mb.index + 1 });
+    }
+  }
+  return out;
+}
+
+/** Number of bars in the loaded score (model bars, not played sequence). */
+export function getBarCount(): number {
+  return api?.score?.masterBars.length ?? 0;
+}
+
+/** Seek to the first play-through of a model bar and scroll it into view. */
+export function seekToBar(modelIndex: number): void {
+  if (!api?.score) return;
+  const clamped = Math.max(0, Math.min(api.score.masterBars.length - 1, modelIndex));
+  api.tickPosition = firstTickOfModelBar(clamped);
+  scrollBarIntoView(clamped);
 }
 
 // ── Seek ──────────────────────────────────────────────────────────────────────

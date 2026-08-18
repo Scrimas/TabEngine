@@ -6,7 +6,6 @@ import type { LibrarySortField } from '$lib/types';
 export interface AppSettings {
   theme:            'parchment' | 'dark';
   metronomeVolume:  number; // 0–100
-  countInBars:      number; // 1 or 2
   libraryDir:       string | null;
   librarySortField: LibrarySortField;
   // Layout — restored on launch
@@ -30,7 +29,6 @@ const SETTINGS_KEY = 'tabengine:settings';
 const DEFAULT_SETTINGS: AppSettings = {
   theme:            'parchment',
   metronomeVolume:  80,
-  countInBars:      1,
   libraryDir:       null,
   librarySortField: 'name',
   sidebarOpen:      true,

@@ -16,6 +16,24 @@ export const progressPct     = derived(
   $s => $s.totalTicks > 0 ? $s.currentTick / $s.totalTicks : 0,
 );
 
+// ── Speed trainer ─────────────────────────────────────────────────────────────
+// Progressive-tempo practice: while loop is on, each completed pass bumps the
+// playback speed by stepPct until targetPct is reached. Session-only state;
+// AlphaTabManager watches loop wraps and applies the bumps.
+export interface SpeedTrainerState {
+  enabled:   boolean;
+  startPct:  number; // speed applied when the trainer is switched on
+  stepPct:   number; // added after each completed loop pass
+  targetPct: number; // ceiling
+}
+
+export const speedTrainerStore = writable<SpeedTrainerState>({
+  enabled:   false,
+  startPct:  50,
+  stepPct:   5,
+  targetPct: 100,
+});
+
 /** Partial-update helper so callers don't need to spread the whole state */
 export function updatePlayer(patch: Partial<PlayerState>): void {
   playerStore.update(s => ({ ...s, ...patch }));

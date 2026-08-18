@@ -10,10 +10,11 @@
   import PlaylistsView    from '$lib/components/PlaylistsView.svelte';
   import Toasts           from '$lib/components/Toasts.svelte';
   import ConfirmDialog    from '$lib/components/ConfirmDialog.svelte';
+  import ShortcutsOverlay from '$lib/components/ShortcutsOverlay.svelte';
 
   import {
     playPause, stop, seekToPrevBar, seekToNextBar, seekToPrevRow, seekToNextRow,
-    setThemeSettings, setMetronomeVolumeLimit, setCountInBarLimit,
+    setThemeSettings, setMetronomeVolumeLimit,
   } from '$lib/alphatab/AlphaTabManager';
 
   import { open as tauriOpen } from '@tauri-apps/plugin-dialog';
@@ -31,6 +32,7 @@
   let browserOpen   = false;
   let settingsOpen  = false;
   let playlistsOpen = false;
+  let shortcutsOpen = false;
 
   let scoreViewer: ScoreViewer;
 
@@ -111,7 +113,6 @@
     }
     setThemeSettings(s.theme);
     setMetronomeVolumeLimit(s.metronomeVolume);
-    setCountInBarLimit(s.countInBars);
   }
 
   function toggleTheme() {
@@ -184,7 +185,11 @@
       case e.code === 'Escape':
         // Let an open overlay's own Escape handler close it instead of also
         // stopping playback as an unrelated side effect.
-        if (!settingsOpen && !browserOpen && !playlistsOpen) stop();
+        if (!settingsOpen && !browserOpen && !playlistsOpen && !shortcutsOpen) stop();
+        break;
+      case (e.key === '?' && !e.ctrlKey && !e.altKey) || (e.key === '/' && e.ctrlKey):
+        e.preventDefault();
+        shortcutsOpen = !shortcutsOpen;
         break;
       case e.code === 'KeyO' && e.ctrlKey:
         e.preventDefault();
@@ -312,6 +317,7 @@
 
 <Toasts />
 <ConfirmDialog />
+<ShortcutsOverlay open={shortcutsOpen} on:close={() => shortcutsOpen = false} />
 <SongsterrBrowser open={browserOpen} on:close={() => browserOpen = false} />
 <SettingsDialog open={settingsOpen} on:close={() => settingsOpen = false} />
 <PlaylistsView

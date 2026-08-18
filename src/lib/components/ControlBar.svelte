@@ -2,10 +2,12 @@
   import { createEventDispatcher } from 'svelte';
   import {
     stop, playPause,
-    setMetronomeEnabled, setPlaybackSpeed,
-    seekToFraction, setLooping,
+    setMetronomeEnabled, setCountInEnabled, setPlaybackSpeed, setDisplayScale,
+    seekToFraction, setLooping, setSpeedTrainerEnabled,
+    getScoreSections, getBarCount, seekToBar,
   } from '$lib/alphatab/AlphaTabManager';
-  import { playerStore } from '$lib/stores/player';
+  import type { ScoreSection } from '$lib/alphatab/AlphaTabManager';
+  import { playerStore, speedTrainerStore } from '$lib/stores/player';
   import { libraryStore } from '$lib/stores/library';
   import { settingsStore, updateSettings } from '$lib/stores/settings';
   import { formatTime } from '$lib/types';
@@ -33,8 +35,17 @@
   $: displayTotal = formatTime($playerStore.totalTime);
 
   function toggleMetronome() { setMetronomeEnabled(!$playerStore.metronomeEnabled); }
+  function toggleCountIn()   { setCountInEnabled(!$playerStore.countInEnabled); }
   function toggleLoop()      { setLooping(!$playerStore.isLooping); }
   function triggerDownload() { dispatch('download'); }
+
+  // ── Score zoom ────────────────────────────────────────────────────────────
+  const ZOOM_MIN = 25, ZOOM_MAX = 200, ZOOM_STEP = 10, ZOOM_DEFAULT = 95;
+  $: zoomPct = Math.round($settingsStore.displayScale * 100);
+  function nudgeZoom(delta: number) {
+    setDisplayScale(Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, zoomPct + delta)) / 100);
+  }
+  function resetZoom() { setDisplayScale(ZOOM_DEFAULT / 100); }
 
   $: canPlay = $playerStore.isReady;
 
@@ -55,8 +66,54 @@
   let metronomeAnchorEl: HTMLDivElement;
   function toggleMetronomePopover() {
     showTempoPopover = false;
+    showGotoPopover  = false;
     showMetronomePopover = !showMetronomePopover;
     if (showMetronomePopover) metronomePopoverStyle = anchoredStyle(metronomeAnchorEl);
+  }
+
+  // ── Go to bar / section popover ───────────────────────────────────────────
+  let showGotoPopover  = false;
+  let gotoPopoverStyle = '';
+  let gotoAnchorEl: HTMLDivElement;
+  let gotoSections: ScoreSection[] = [];
+  let gotoBarCount = 0;
+  let gotoBarInput = '';
+  function toggleGotoPopover() {
+    showTempoPopover     = false;
+    showMetronomePopover = false;
+    showGotoPopover = !showGotoPopover;
+    if (showGotoPopover) {
+      gotoSections = getScoreSections();
+      gotoBarCount = getBarCount();
+      gotoBarInput = '';
+      gotoPopoverStyle = anchoredStyle(gotoAnchorEl);
+    }
+  }
+  function closeGotoPopover() { showGotoPopover = false; }
+  function gotoTypedBar() {
+    const n = parseInt(gotoBarInput, 10);
+    if (!Number.isFinite(n) || n < 1) return;
+    seekToBar(n - 1);
+    showGotoPopover = false;
+  }
+  function gotoSection(s: ScoreSection) {
+    seekToBar(s.barIndex);
+    showGotoPopover = false;
+  }
+
+  // ── Speed trainer field handlers ──────────────────────────────────────────
+  function onTrainerToggle(e: Event) {
+    setSpeedTrainerEnabled((e.currentTarget as HTMLInputElement).checked);
+  }
+
+  function onTrainerField(field: 'startPct' | 'stepPct' | 'targetPct', e: Event) {
+    const raw = Math.round(Number((e.currentTarget as HTMLInputElement).value));
+    if (!Number.isFinite(raw)) return;
+    const clamped = field === 'stepPct'
+      ? Math.max(1, Math.min(50, raw))
+      : Math.max(SPEED_MIN, Math.min(SPEED_MAX, raw));
+    speedTrainerStore.update(t => ({ ...t, [field]: clamped }));
+    (e.currentTarget as HTMLInputElement).value = String(clamped);
   }
 
   // ── Tempo popover ("Compact strip" design) ─────────────────────────────────
@@ -83,6 +140,7 @@
   let bpmBadgeEl: HTMLButtonElement;
   function toggleTempoPopover() {
     showMetronomePopover = false;
+    showGotoPopover      = false;
     showTempoPopover = !showTempoPopover;
     if (showTempoPopover) tempoPopoverStyle = anchoredStyle(bpmBadgeEl);
   }
@@ -217,6 +275,67 @@
 
   <!-- Right controls -->
   <div class="right-ctrl">
+    <!-- Go to bar / section -->
+    <div class="popover-anchor" use:clickOutside={closeGotoPopover} bind:this={gotoAnchorEl}>
+      <button
+        class="icon-toggle"
+        class:active={showGotoPopover}
+        on:click={toggleGotoPopover}
+        disabled={!canPlay}
+        title="Go to bar or section"
+        aria-label="Go to bar or section"
+        aria-expanded={showGotoPopover}
+      >
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+             stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <circle cx="12" cy="12" r="7"/>
+          <line x1="12" y1="2" x2="12" y2="5"/><line x1="12" y1="19" x2="12" y2="22"/>
+          <line x1="2" y1="12" x2="5" y2="12"/><line x1="19" y1="12" x2="22" y2="12"/>
+        </svg>
+      </button>
+
+      {#if showGotoPopover}
+        <div class="popover goto-popover" style={gotoPopoverStyle} role="group" aria-label="Go to bar or section">
+          <span class="popover-title">Go to</span>
+          <form class="goto-bar-row" on:submit|preventDefault={gotoTypedBar}>
+            <label class="goto-bar-label" for="goto-bar-input">Bar</label>
+            <input
+              id="goto-bar-input"
+              class="goto-bar-input"
+              type="number"
+              min="1"
+              max={gotoBarCount}
+              placeholder="1–{gotoBarCount}"
+              bind:value={gotoBarInput}
+              use:autofocus
+            />
+            <button class="goto-go-btn press" type="submit">Go</button>
+          </form>
+          {#if gotoSections.length > 0}
+            <div class="goto-sections">
+              {#each gotoSections as section (section.barIndex)}
+                <button class="goto-section" on:click={() => gotoSection(section)}>
+                  <span class="goto-section-name">{section.name}</span>
+                  <span class="goto-section-bar">bar {section.barNumber}</span>
+                </button>
+              {/each}
+            </div>
+          {:else}
+            <span class="goto-empty">No section markers in this song.</span>
+          {/if}
+        </div>
+      {/if}
+    </div>
+
+    <!-- Score zoom -->
+    <div class="zoom-group" role="group" aria-label="Score zoom">
+      <button class="zoom-btn" on:click={() => nudgeZoom(-ZOOM_STEP)} disabled={zoomPct <= ZOOM_MIN}
+              title="Zoom out" aria-label="Zoom out">−</button>
+      <button class="zoom-pct" on:click={resetZoom} title="Reset zoom" aria-label="Zoom {zoomPct} percent, click to reset">{zoomPct}%</button>
+      <button class="zoom-btn" on:click={() => nudgeZoom(ZOOM_STEP)} disabled={zoomPct >= ZOOM_MAX}
+              title="Zoom in" aria-label="Zoom in">+</button>
+    </div>
+
     <!-- BPM badge (opens tempo popover) -->
     <div class="popover-anchor" use:clickOutside={closeTempoPopover}>
       <button
@@ -290,6 +409,35 @@
             <div class="strip-thumb-pin" style="left:{rulerLeft}%"></div>
             <div class="strip-thumb-dot" style="left:{rulerLeft}%"></div>
           </div>
+
+          <!-- Speed trainer: bump speed each loop pass until the target -->
+          <div class="trainer-row" title="With loop on, each completed pass raises the speed by the step until the target is reached.">
+            <label class="trainer-toggle">
+              <input
+                type="checkbox"
+                checked={$speedTrainerStore.enabled}
+                on:change={onTrainerToggle}
+              />
+              <span>Speed trainer</span>
+            </label>
+            <div class="trainer-fields" class:dimmed={!$speedTrainerStore.enabled}>
+              <input class="trainer-input" type="number" min={SPEED_MIN} max={SPEED_MAX}
+                     value={$speedTrainerStore.startPct}
+                     on:change={(e) => onTrainerField('startPct', e)}
+                     aria-label="Trainer start speed percent" />
+              <span class="trainer-sep">% +</span>
+              <input class="trainer-input narrow" type="number" min="1" max="50"
+                     value={$speedTrainerStore.stepPct}
+                     on:change={(e) => onTrainerField('stepPct', e)}
+                     aria-label="Trainer step percent" />
+              <span class="trainer-sep">% →</span>
+              <input class="trainer-input" type="number" min={SPEED_MIN} max={SPEED_MAX}
+                     value={$speedTrainerStore.targetPct}
+                     on:change={(e) => onTrainerField('targetPct', e)}
+                     aria-label="Trainer target speed percent" />
+              <span class="trainer-sep">%</span>
+            </div>
+          </div>
         </div>
       {/if}
     </div>
@@ -341,6 +489,24 @@
         </div>
       {/if}
     </div>
+
+    <!-- Count-in toggle -->
+    <button
+      class="icon-toggle"
+      class:active={$playerStore.countInEnabled}
+      on:click={toggleCountIn}
+      title="Count-in (one bar of clicks before playback)"
+      aria-pressed={$playerStore.countInEnabled}
+      aria-label="Count-in"
+    >
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+           stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <circle cx="12" cy="14" r="7.5"/>
+        <line x1="12" y1="14" x2="12" y2="10"/>
+        <line x1="9" y1="2.5" x2="15" y2="2.5"/>
+        <line x1="12" y1="2.5" x2="12" y2="6"/>
+      </svg>
+    </button>
 
     <!-- Loop toggle -->
     <button
@@ -760,6 +926,198 @@
     transform: translate(-50%, -50%);
     border-radius: 50%;
     background: var(--accent);
+  }
+
+  /* ── Zoom group ─────────────────────────────────────────────────────────── */
+  .zoom-group {
+    display: flex;
+    align-items: center;
+    height: 32px;
+    border: 1px solid var(--border);
+    border-radius: 9px;
+    overflow: hidden;
+  }
+  .zoom-btn {
+    width: 24px;
+    height: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: transparent;
+    border: none;
+    color: var(--text-secondary);
+    font-size: 14px;
+    line-height: 1;
+    cursor: pointer;
+    transition: background var(--transition), color var(--transition);
+  }
+  .zoom-btn:hover:not(:disabled) {
+    background: var(--bg-hover);
+    color: var(--text-primary);
+  }
+  .zoom-btn:disabled { opacity: 0.35; cursor: not-allowed; }
+  .zoom-pct {
+    min-width: 42px;
+    height: 100%;
+    padding: 0 4px;
+    background: transparent;
+    border: none;
+    border-left: 1px solid var(--border);
+    border-right: 1px solid var(--border);
+    color: var(--text-secondary);
+    font-family: var(--font-mono);
+    font-size: 11px;
+    font-variant-numeric: tabular-nums;
+    cursor: pointer;
+    transition: background var(--transition), color var(--transition);
+  }
+  .zoom-pct:hover {
+    background: var(--bg-hover);
+    color: var(--text-primary);
+  }
+
+  /* ── Go-to popover ──────────────────────────────────────────────────────── */
+  .goto-popover {
+    width: 250px;
+  }
+  .goto-bar-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .goto-bar-label {
+    font-size: 12px;
+    color: var(--text-secondary);
+  }
+  .goto-bar-input {
+    flex: 1;
+    min-width: 0;
+    height: 30px;
+    padding: 0 10px;
+    background: var(--bg-base);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    color: var(--text-primary);
+    font-family: var(--font-mono);
+    font-size: 12px;
+  }
+  .goto-bar-input:focus {
+    outline: none;
+    border-color: var(--accent-glow);
+  }
+  .goto-go-btn {
+    height: 30px;
+    padding: 0 12px;
+    border-radius: var(--radius);
+    background: var(--accent);
+    border: none;
+    color: #fff;
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: filter var(--transition);
+  }
+  .goto-go-btn:hover { filter: brightness(1.08); }
+  .goto-sections {
+    margin-top: 10px;
+    max-height: 220px;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+  .goto-section {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    padding: 6px 8px;
+    background: transparent;
+    border: none;
+    border-radius: var(--radius);
+    cursor: pointer;
+    text-align: left;
+    transition: background var(--transition);
+  }
+  .goto-section:hover { background: var(--overlay-subtle); }
+  .goto-section-name {
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--text-primary);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .goto-section-bar {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: var(--text-muted);
+    flex-shrink: 0;
+  }
+  .goto-empty {
+    display: block;
+    margin-top: 10px;
+    font-size: 12px;
+    color: var(--text-muted);
+  }
+
+  /* ── Speed trainer row ──────────────────────────────────────────────────── */
+  .trainer-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    margin-top: 4px;
+    padding-top: 12px;
+    border-top: 1px solid var(--border);
+  }
+  .trainer-toggle {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text-primary);
+    cursor: pointer;
+    white-space: nowrap;
+  }
+  .trainer-toggle input[type='checkbox'] {
+    accent-color: var(--accent);
+    cursor: pointer;
+  }
+  .trainer-fields {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    transition: opacity var(--transition);
+  }
+  .trainer-fields.dimmed { opacity: 0.45; }
+  .trainer-input {
+    width: 40px;
+    height: 26px;
+    padding: 0 4px;
+    background: var(--bg-base);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    color: var(--text-primary);
+    font-family: var(--font-mono);
+    font-size: 11px;
+    text-align: center;
+  }
+  .trainer-input.narrow { width: 32px; }
+  .trainer-input:focus {
+    outline: none;
+    border-color: var(--accent-glow);
+  }
+  .trainer-input::-webkit-inner-spin-button,
+  .trainer-input::-webkit-outer-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+  }
+  .trainer-sep {
+    font-size: 11px;
+    color: var(--text-muted);
+    white-space: nowrap;
   }
 
   .icon-toggle {
