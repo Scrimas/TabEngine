@@ -6,6 +6,7 @@
 
 mod commands;
 mod songsterr;
+mod update;
 
 pub fn run() {
     // NOTE: do NOT force WEBKIT_DISABLE_DMABUF_RENDERER=1 here. It once
@@ -38,6 +39,7 @@ pub fn run() {
             songsterr::songsterr_fetch_tab,
             songsterr::songsterr_check_restriction,
             songsterr::songsterr_fetch_url,
+            update::check_latest_release,
         ])
         .run(tauri::generate_context!())
         .expect("error while running TabEngine");

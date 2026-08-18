@@ -110,7 +110,7 @@ const FETCH_URL_ALLOWED_HOSTS: &[&str] = &[
 /// Shared client: connection pooling plus hard timeouts so a stalled
 /// Songsterr request can never hang the UI forever (the frontend keeps
 /// `isFetching` until the command resolves).
-fn client() -> Result<reqwest::Client, String> {
+pub(crate) fn client() -> Result<reqwest::Client, String> {
     static HTTP: OnceLock<reqwest::Client> = OnceLock::new();
     if let Some(c) = HTTP.get() {
         return Ok(c.clone());
