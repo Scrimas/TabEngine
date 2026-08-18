@@ -300,8 +300,12 @@ input[type='range']:disabled {
   opacity:        1;
 }
 
-/* Ensure app content sits above the texture */
-#app > * {
+/* Ensure app content sits above the texture. :where() zeroes the specificity:
+   a bare `#app > *` (ID selector) outweighs Svelte's scoped class selectors,
+   silently overriding the `position: fixed` of top-level overlay components
+   (settings, confirm dialogs, toasts …) — they then land in normal flow below
+   the 100%-height app shell instead of centering in the viewport. */
+:where(#app) > * {
   position: relative;
   z-index:  1;
 }
