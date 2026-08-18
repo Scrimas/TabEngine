@@ -180,8 +180,9 @@
     scoreReady = false;
     selectedTrackIndex = null;
     try {
-      const bytes: number[] = await invoke('read_gp_file', { path });
-      loadFromBytes(new Uint8Array(bytes));
+      // read_gp_file returns a raw-bytes IPC response (ArrayBuffer), not JSON
+      const buf: ArrayBuffer = await invoke('read_gp_file', { path });
+      loadFromBytes(new Uint8Array(buf));
       noteLoadedPath(path);
     } catch (err) {
       reportLoadFailure('Failed to load file', err);

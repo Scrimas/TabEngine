@@ -14,6 +14,39 @@ use std::path::{Path, PathBuf};
 use tauri::AppHandle;
 use tauri::Manager;
 
+/// Upper bound for any single Guitar Pro file we read fully into memory.
+/// Real GP files are well under 10 MB; a mislabeled multi-GB file would
+/// otherwise be slurped whole and freeze the app.
+const MAX_FILE_BYTES: u64 = 50 * 1024 * 1024;
+
+/// Run blocking filesystem work off the async runtime. Commands are async so
+/// they don't block the IPC dispatcher, but `std::fs` calls would then run on
+/// the tokio runtime threads — hop to the blocking pool instead.
+async fn blocking<T, F>(f: F) -> Result<T, String>
+where
+    F: FnOnce() -> Result<T, String> + Send + 'static,
+    T: Send + 'static,
+{
+    tauri::async_runtime::spawn_blocking(f)
+        .await
+        .map_err(|e| format!("Background task failed: {}", e))?
+}
+
+/// Reject absurdly large files before reading them fully into memory.
+fn ensure_reasonable_size(path: &Path) -> Result<(), String> {
+    let meta =
+        fs::metadata(path).map_err(|e| format!("Failed to stat '{}': {}", path.display(), e))?;
+    if meta.len() > MAX_FILE_BYTES {
+        return Err(format!(
+            "'{}' is {} MB — larger than the {} MB limit for Guitar Pro files.",
+            path.display(),
+            meta.len() / (1024 * 1024),
+            MAX_FILE_BYTES / (1024 * 1024)
+        ));
+    }
+    Ok(())
+}
+
 // ── Data types ───────────────────────────────────────────────────────────────
 
 /// A Guitar Pro file entry discovered during a library scan.
@@ -33,12 +66,19 @@ pub struct LibraryEntry {
 
 /// Read the raw bytes of a Guitar Pro file.
 ///
-/// The frontend receives a JSON array of u8 values which it reconstructs
-/// into a `Uint8Array` before passing to `alphaTab.AlphaTabApi.load()`.
+/// Returned as a raw-bytes IPC response (`tauri::ipc::Response`), which the
+/// frontend receives as an `ArrayBuffer` — NOT as a JSON array of u8 values,
+/// which would inflate a multi-MB file several-fold during serialization.
 #[tauri::command]
-pub async fn read_gp_file(path: String) -> Result<Vec<u8>, String> {
-    ensure_gp_path(Path::new(&path))?;
-    fs::read(&path).map_err(|e| format!("Failed to read '{}': {}", path, e))
+pub async fn read_gp_file(path: String) -> Result<tauri::ipc::Response, String> {
+    let bytes = blocking(move || {
+        let p = Path::new(&path);
+        ensure_gp_path(p)?;
+        ensure_reasonable_size(p)?;
+        fs::read(p).map_err(|e| format!("Failed to read '{}': {}", path, e))
+    })
+    .await?;
+    Ok(tauri::ipc::Response::new(bytes))
 }
 
 /// Return the application data directory path for this process.
@@ -57,18 +97,21 @@ pub async fn get_app_data_dir(app: AppHandle) -> Result<String, String> {
 /// Supported extensions: gp, gp3, gp4, gp5, gpx (case-insensitive).
 #[tauri::command]
 pub async fn scan_directory_for_gp(dir: String) -> Result<Vec<LibraryEntry>, String> {
-    let root = Path::new(&dir);
-    if !root.exists() {
-        return Err(format!("Directory '{}' does not exist.", dir));
-    }
-    if !root.is_dir() {
-        return Err(format!("'{}' is not a directory.", dir));
-    }
+    blocking(move || {
+        let root = Path::new(&dir);
+        if !root.exists() {
+            return Err(format!("Directory '{}' does not exist.", dir));
+        }
+        if !root.is_dir() {
+            return Err(format!("'{}' is not a directory.", dir));
+        }
 
-    let mut entries: Vec<LibraryEntry> = Vec::new();
-    scan_recursive(root, &mut entries, 0).map_err(|e| e.to_string())?;
-    entries.sort_by(|a, b| a.name.cmp(&b.name));
-    Ok(entries)
+        let mut entries: Vec<LibraryEntry> = Vec::new();
+        scan_recursive(root, &mut entries, 0).map_err(|e| e.to_string())?;
+        entries.sort_by(|a, b| a.name.cmp(&b.name));
+        Ok(entries)
+    })
+    .await
 }
 
 /// Build a single `LibraryEntry` for an individual file path.
@@ -77,24 +120,12 @@ pub async fn scan_directory_for_gp(dir: String) -> Result<Vec<LibraryEntry>, Str
 /// scanning a whole folder.
 #[tauri::command]
 pub async fn file_metadata(path: String) -> Result<LibraryEntry, String> {
-    let p = Path::new(&path);
-    build_entry(p).map_err(|e| e.to_string())
-}
-
-/// Write bytes to a local Guitar Pro file path.
-/// Creates parent directories if they don't exist.
-#[tauri::command]
-pub async fn save_gp_file(path: String, bytes: Vec<u8>) -> Result<(), String> {
-    let p = Path::new(&path);
-    ensure_gp_path(p)?;
-    if let Some(stem) = p.file_stem().and_then(|s| s.to_str()) {
-        validate_file_stem(stem)?;
-    }
-    if let Some(parent) = p.parent() {
-        fs::create_dir_all(parent)
-            .map_err(|e| format!("Failed to create directory '{}': {}", parent.display(), e))?;
-    }
-    fs::write(&path, bytes).map_err(|e| format!("Failed to save tab file to '{}': {}", path, e))
+    blocking(move || {
+        let p = Path::new(&path);
+        ensure_gp_path(p)?;
+        build_entry(p).map_err(|e| e.to_string())
+    })
+    .await
 }
 
 /// Save `bytes` into `dest_dir` under `filename` without clobbering existing
@@ -107,16 +138,19 @@ pub async fn save_gp_file_to_dir(
     filename: String,
     bytes: Vec<u8>,
 ) -> Result<LibraryEntry, String> {
-    if filename.contains('/') || filename.contains('\\') {
-        return Err("File name cannot contain path separators.".to_string());
-    }
-    let file = Path::new(&filename);
-    ensure_gp_path(file)?;
-    if let Some(stem) = file.file_stem().and_then(|s| s.to_str()) {
-        validate_file_stem(stem)?;
-    }
-    let dest = write_unique(Path::new(&dest_dir), &filename, &bytes)?;
-    build_entry(&dest).map_err(|e| e.to_string())
+    blocking(move || {
+        if filename.contains('/') || filename.contains('\\') {
+            return Err("File name cannot contain path separators.".to_string());
+        }
+        let file = Path::new(&filename);
+        ensure_gp_path(file)?;
+        if let Some(stem) = file.file_stem().and_then(|s| s.to_str()) {
+            validate_file_stem(stem)?;
+        }
+        let dest = write_unique(Path::new(&dest_dir), &filename, &bytes)?;
+        build_entry(&dest).map_err(|e| e.to_string())
+    })
+    .await
 }
 
 /// Copy an external Guitar Pro file into `dest_dir` (the library). Returns the
@@ -125,65 +159,71 @@ pub async fn save_gp_file_to_dir(
 /// locations are recognised. Collisions are handled like `save_gp_file_to_dir`.
 #[tauri::command]
 pub async fn import_gp_file(src_path: String, dest_dir: String) -> Result<LibraryEntry, String> {
-    let src = Path::new(&src_path);
-    ensure_gp_path(src)?;
-    let dir = Path::new(&dest_dir);
+    blocking(move || {
+        let src = Path::new(&src_path);
+        ensure_gp_path(src)?;
+        let dir = Path::new(&dest_dir);
 
-    if let (Ok(csrc), Ok(cdir)) = (fs::canonicalize(src), fs::canonicalize(dir)) {
-        if csrc.starts_with(&cdir) {
-            return build_entry(src).map_err(|e| e.to_string());
+        if let (Ok(csrc), Ok(cdir)) = (fs::canonicalize(src), fs::canonicalize(dir)) {
+            if csrc.starts_with(&cdir) {
+                return build_entry(src).map_err(|e| e.to_string());
+            }
         }
-    }
 
-    let bytes = fs::read(src).map_err(|e| format!("Failed to read '{}': {}", src_path, e))?;
+        ensure_reasonable_size(src)?;
+        let bytes = fs::read(src).map_err(|e| format!("Failed to read '{}': {}", src_path, e))?;
 
-    let stem = src.file_stem().and_then(|s| s.to_str()).unwrap_or("");
-    let ext = src
-        .extension()
-        .and_then(|e| e.to_str())
-        .unwrap_or("gp5")
-        .to_lowercase();
-    let filename = format!("{}.{}", sanitize_file_stem(stem), ext);
+        let stem = src.file_stem().and_then(|s| s.to_str()).unwrap_or("");
+        let ext = src
+            .extension()
+            .and_then(|e| e.to_str())
+            .unwrap_or("gp5")
+            .to_lowercase();
+        let filename = format!("{}.{}", sanitize_file_stem(stem), ext);
 
-    let dest = write_unique(dir, &filename, &bytes)?;
-    build_entry(&dest).map_err(|e| e.to_string())
+        let dest = write_unique(dir, &filename, &bytes)?;
+        build_entry(&dest).map_err(|e| e.to_string())
+    })
+    .await
 }
 
 /// Rename a Guitar Pro file on disk and return the updated library entry.
 /// The new path uses the same directory and extension as the original.
 #[tauri::command]
 pub async fn rename_gp_file(old_path: String, new_name: String) -> Result<LibraryEntry, String> {
-    let old = Path::new(&old_path);
-    ensure_gp_path(old)?;
-    let parent = old
-        .parent()
-        .ok_or_else(|| format!("Cannot determine parent directory of '{}'", old_path))?;
-    let ext = old
-        .extension()
-        .and_then(|e| e.to_str())
-        .unwrap_or("gp5");
+    blocking(move || {
+        let old = Path::new(&old_path);
+        ensure_gp_path(old)?;
+        let parent = old
+            .parent()
+            .ok_or_else(|| format!("Cannot determine parent directory of '{}'", old_path))?;
+        let ext = old.extension().and_then(|e| e.to_str()).unwrap_or("gp5");
 
-    let name = validate_file_stem(&new_name)?;
-    let new_filename = format!("{}.{}", name, ext);
-    let new_path = parent.join(&new_filename);
+        let name = validate_file_stem(&new_name)?;
+        let new_filename = format!("{}.{}", name, ext);
+        let new_path = parent.join(&new_filename);
 
-    if new_path.exists() && !is_same_file(old, &new_path) {
-        return Err(format!(
-            "A file named '{}' already exists in that folder.",
-            new_filename
-        ));
-    }
+        if new_path.exists() && !is_same_file(old, &new_path) {
+            return Err(format!(
+                "A file named '{}' already exists in that folder.",
+                new_filename
+            ));
+        }
 
-    fs::rename(&old_path, &new_path)
-        .map_err(|e| format!("Failed to rename file: {}", e))?;
+        fs::rename(&old_path, &new_path).map_err(|e| format!("Failed to rename file: {}", e))?;
 
-    build_entry(&new_path).map_err(|e| e.to_string())
+        build_entry(&new_path).map_err(|e| e.to_string())
+    })
+    .await
 }
 
 #[tauri::command]
 pub async fn delete_gp_file(path: String) -> Result<(), String> {
-    ensure_gp_path(Path::new(&path))?;
-    fs::remove_file(&path).map_err(|e| format!("Failed to delete '{}': {}", path, e))
+    blocking(move || {
+        ensure_gp_path(Path::new(&path))?;
+        fs::remove_file(&path).map_err(|e| format!("Failed to delete '{}': {}", path, e))
+    })
+    .await
 }
 
 // ── Internal helpers ──────────────────────────────────────────────────────────
@@ -214,7 +254,9 @@ fn validate_file_stem(raw: &str) -> Result<&str, String> {
     if name == "." || name == ".." || name.chars().any(|c| c == '/' || c == '\\') {
         return Err("File name cannot contain path separators.".to_string());
     }
-    if name.chars().any(|c| matches!(c, '<' | '>' | ':' | '"' | '|' | '?' | '*') || c.is_control())
+    if name
+        .chars()
+        .any(|c| matches!(c, '<' | '>' | ':' | '"' | '|' | '?' | '*') || c.is_control())
         || name.ends_with('.')
     {
         return Err(format!(
@@ -241,8 +283,7 @@ fn sanitize_file_stem(raw: &str) -> String {
     let cleaned: String = raw
         .chars()
         .map(|c| {
-            if matches!(c, '<' | '>' | ':' | '"' | '|' | '?' | '*' | '/' | '\\') || c.is_control()
-            {
+            if matches!(c, '<' | '>' | ':' | '"' | '|' | '?' | '*' | '/' | '\\') || c.is_control() {
                 '_'
             } else {
                 c
@@ -266,7 +307,10 @@ fn write_unique(dest_dir: &Path, filename: &str, bytes: &[u8]) -> Result<PathBuf
         .map_err(|e| format!("Failed to create directory '{}': {}", dest_dir.display(), e))?;
 
     let file = Path::new(filename);
-    let stem = file.file_stem().and_then(|s| s.to_str()).unwrap_or(filename);
+    let stem = file
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or(filename);
     let ext = file.extension().and_then(|e| e.to_str()).unwrap_or("gp5");
 
     for i in 0..100 {
@@ -277,7 +321,11 @@ fn write_unique(dest_dir: &Path, filename: &str, bytes: &[u8]) -> Result<PathBuf
         };
         let dest = dest_dir.join(&candidate);
 
-        match fs::OpenOptions::new().write(true).create_new(true).open(&dest) {
+        match fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&dest)
+        {
             Ok(mut f) => {
                 f.write_all(bytes)
                     .map_err(|e| format!("Failed to save '{}': {}", dest.display(), e))?;
@@ -285,7 +333,10 @@ fn write_unique(dest_dir: &Path, filename: &str, bytes: &[u8]) -> Result<PathBuf
             }
             Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
                 // Name taken — reuse the existing file if the content matches.
-                if fs::read(&dest).map(|existing| existing == bytes).unwrap_or(false) {
+                if fs::read(&dest)
+                    .map(|existing| existing == bytes)
+                    .unwrap_or(false)
+                {
                     return Ok(dest);
                 }
             }
@@ -329,7 +380,7 @@ fn scan_recursive(dir: &Path, out: &mut Vec<LibraryEntry>, depth: u32) -> std::i
     }
     for entry in fs::read_dir(dir)? {
         let entry = entry?;
-        let path  = entry.path();
+        let path = entry.path();
 
         // Never follow symlinks — a link pointing at an ancestor directory
         // would otherwise recurse forever.

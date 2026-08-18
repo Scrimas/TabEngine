@@ -9,6 +9,8 @@
 //   Svelte frontend completely stable.
 
 use serde::{Deserialize, Serialize};
+use std::sync::OnceLock;
+use std::time::Duration;
 
 // ── Original Data types returned to Frontend ────────────────────────────────
 
@@ -90,11 +92,135 @@ struct RevisionResponse {
 const USER_AGENT: &str = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 \
                            (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
 
-fn build_client() -> Result<reqwest::Client, String> {
-    reqwest::Client::builder()
+/// Upper bound for any HTTP body we buffer. Real GP files are well under
+/// 10 MB; anything larger is a misbehaving endpoint, and buffering it whole
+/// (then JSON-serializing it over IPC) would freeze the app.
+const MAX_DOWNLOAD_BYTES: u64 = 50 * 1024 * 1024;
+
+/// Hosts the generic `songsterr_fetch_url` proxy may talk to. The command
+/// exists to bypass CORS for the restricted-tab downloader, not to be an
+/// open relay for arbitrary requests from the webview.
+const FETCH_URL_ALLOWED_HOSTS: &[&str] = &[
+    "songsterr.com",
+    "www.songsterr.com",
+    "dqsljvtekg760.cloudfront.net",
+    "d3d3l6a6rcgkaf.cloudfront.net",
+];
+
+/// Shared client: connection pooling plus hard timeouts so a stalled
+/// Songsterr request can never hang the UI forever (the frontend keeps
+/// `isFetching` until the command resolves).
+fn client() -> Result<reqwest::Client, String> {
+    static HTTP: OnceLock<reqwest::Client> = OnceLock::new();
+    if let Some(c) = HTTP.get() {
+        return Ok(c.clone());
+    }
+    let built = reqwest::Client::builder()
         .user_agent(USER_AGENT)
+        .connect_timeout(Duration::from_secs(10))
+        .timeout(Duration::from_secs(30))
         .build()
-        .map_err(|e| format!("Failed to build HTTP client: {}", e))
+        .map_err(|e| format!("Failed to build HTTP client: {}", e))?;
+    Ok(HTTP.get_or_init(|| built).clone())
+}
+
+/// Truncate on a char boundary. Byte-slicing (`&s[0..300]`) panics mid-UTF-8
+/// sequence, and with `panic = "abort"` that kills the whole process.
+fn truncate_chars(s: &str, max_chars: usize) -> String {
+    s.chars().take(max_chars).collect()
+}
+
+/// Buffer a response body with a size cap (checked against Content-Length
+/// up front and enforced while streaming, since the header can lie).
+async fn read_body_capped(mut resp: reqwest::Response, what: &str) -> Result<Vec<u8>, String> {
+    if let Some(len) = resp.content_length() {
+        if len > MAX_DOWNLOAD_BYTES {
+            return Err(format!("{} is too large ({} bytes).", what, len));
+        }
+    }
+    let mut out: Vec<u8> = Vec::new();
+    while let Some(chunk) = resp
+        .chunk()
+        .await
+        .map_err(|e| format!("Failed to read {}: {}", what, e))?
+    {
+        if (out.len() + chunk.len()) as u64 > MAX_DOWNLOAD_BYTES {
+            return Err(format!(
+                "{} exceeded the {} MB download limit.",
+                what,
+                MAX_DOWNLOAD_BYTES / (1024 * 1024)
+            ));
+        }
+        out.extend_from_slice(&chunk);
+    }
+    Ok(out)
+}
+
+/// What the meta -> revision resolution found for a song.
+enum ResolvedSource {
+    /// Downloadable: the CDN URL of the source GP file.
+    Available(String),
+    /// Published but copyright-restricted (no source URL).
+    Restricted,
+    /// Meta endpoint returned 403 — unpublished/private tab.
+    Unpublished,
+}
+
+/// Shared meta -> revision resolution used by both `songsterr_fetch_tab` and
+/// `songsterr_check_restriction` (previously duplicated in both commands).
+async fn resolve_source(song_id: u64) -> Result<ResolvedSource, String> {
+    let client = client()?;
+
+    let meta_url = format!("https://www.songsterr.com/api/meta/{}", song_id);
+    let meta_resp = client
+        .get(&meta_url)
+        .header("Accept", "application/json")
+        .send()
+        .await
+        .map_err(|e| format!("Failed to request metadata: {}", e))?;
+
+    if meta_resp.status().as_u16() == 403 {
+        return Ok(ResolvedSource::Unpublished);
+    }
+    if !meta_resp.status().is_success() {
+        return Err(format!(
+            "Metadata endpoint returned HTTP {}",
+            meta_resp.status()
+        ));
+    }
+
+    let meta: MetaResponse = meta_resp
+        .json()
+        .await
+        .map_err(|e| format!("Failed to parse metadata JSON: {}", e))?;
+
+    let revision_url = format!(
+        "https://www.songsterr.com/api/revision/{}",
+        meta.revision_id
+    );
+    let rev_resp = client
+        .get(&revision_url)
+        .header("Accept", "application/json")
+        .send()
+        .await
+        .map_err(|e| format!("Failed to request revision details: {}", e))?;
+
+    if !rev_resp.status().is_success() {
+        return Err(format!(
+            "Revision endpoint returned HTTP {}",
+            rev_resp.status()
+        ));
+    }
+
+    let revision: RevisionResponse = rev_resp
+        .json()
+        .await
+        .map_err(|e| format!("Failed to parse revision JSON: {}", e))?;
+
+    match revision.source {
+        Some(url) if !url.trim().is_empty() => Ok(ResolvedSource::Available(url)),
+        _ => Ok(ResolvedSource::Restricted),
+    }
 }
 
 // ── Commands ─────────────────────────────────────────────────────────────────
@@ -109,7 +235,7 @@ pub async fn songsterr_search(
     size: Option<u32>,
     from: Option<u32>,
 ) -> Result<Vec<SongsterrSong>, String> {
-    let client = build_client()?;
+    let client = client()?;
 
     let mut url = reqwest::Url::parse("https://www.songsterr.com/api/search")
         .map_err(|e| format!("Failed to parse URL: {}", e))?;
@@ -143,15 +269,13 @@ pub async fn songsterr_search(
         .await
         .map_err(|e| format!("Failed to read response body text: {}", e))?;
 
-    let search_res = serde_json::from_str::<SearchResponse>(&body_text)
-        .map_err(|e| {
-            let sample = if body_text.len() > 300 {
-                &body_text[0..300]
-            } else {
-                &body_text
-            };
-            format!("JSON parse error: {}. Body sample: {}", e, sample)
-        })?;
+    let search_res = serde_json::from_str::<SearchResponse>(&body_text).map_err(|e| {
+        format!(
+            "JSON parse error: {}. Body sample: {}",
+            e,
+            truncate_chars(&body_text, 300)
+        )
+    })?;
 
     // Map new records schema back to the original interface expected by Svelte
     let mapped_songs: Vec<SongsterrSong> = search_res
@@ -178,68 +302,24 @@ pub async fn songsterr_search(
 
 /// Fetch a Guitar Pro tablature file from Songsterr (Updated for 2026 multi-hop flow).
 ///
-/// Under the hood, this makes two meta calls to resolve the CDN source path:
-///   1. GET `/api/meta/{song_id}` -> extracts latest `revisionId`.
-///   2. GET `/api/revision/{revision_id}` -> extracts `source` file URL.
-///   3. GET `{source_url}` -> returns raw binary bytes.
+/// Resolves meta -> revision -> CDN source URL (see `resolve_source`), then
+/// downloads the raw GP binary. Returned as a raw-bytes IPC response so the
+/// file doesn't get serialized into a JSON number array on its way to JS.
 #[tauri::command]
-pub async fn songsterr_fetch_tab(song_id: u64) -> Result<Vec<u8>, String> {
-    let client = build_client()?;
+pub async fn songsterr_fetch_tab(song_id: u64) -> Result<tauri::ipc::Response, String> {
+    let source_url =
+        match resolve_source(song_id).await? {
+            ResolvedSource::Available(url) => url,
+            ResolvedSource::Restricted => return Err(
+                "This track is copyright-restricted by Songsterr and cannot be loaded directly."
+                    .to_string(),
+            ),
+            ResolvedSource::Unpublished => {
+                return Err("This tab is unpublished/private on Songsterr.".to_string())
+            }
+        };
 
-    // Step 1: Fetch metadata to get the revisionId
-    let meta_url = format!("https://www.songsterr.com/api/meta/{}", song_id);
-    let meta_resp = client
-        .get(&meta_url)
-        .header("Accept", "application/json")
-        .send()
-        .await
-        .map_err(|e| format!("Failed to request metadata: {}", e))?;
-
-    if !meta_resp.status().is_success() {
-        return Err(format!(
-            "Metadata endpoint returned HTTP {}",
-            meta_resp.status()
-        ));
-    }
-
-    let meta: MetaResponse = meta_resp
-        .json()
-        .await
-        .map_err(|e| format!("Failed to parse metadata JSON: {}", e))?;
-
-    // Step 2: Fetch the revision details using the resolved revisionId
-    let revision_url = format!(
-        "https://www.songsterr.com/api/revision/{}",
-        meta.revision_id
-    );
-    let rev_resp = client
-        .get(&revision_url)
-        .header("Accept", "application/json")
-        .send()
-        .await
-        .map_err(|e| format!("Failed to request revision details: {}", e))?;
-
-    if !rev_resp.status().is_success() {
-        return Err(format!(
-            "Revision endpoint returned HTTP {}",
-            rev_resp.status()
-        ));
-    }
-
-    let revision: RevisionResponse = rev_resp
-        .json()
-        .await
-        .map_err(|e| format!("Failed to parse revision JSON: {}", e))?;
-
-    // Step 3: Check if source URL exists (handle copyright blocks)
-    let source_url = match revision.source {
-        Some(url) if !url.trim().is_empty() => url,
-        _ => return Err(
-            "This track is copyright-restricted by Songsterr and cannot be loaded directly.".to_string()
-        ),
-    };
-
-    // Step 4: Download the raw GP binary from the CDN source URL
+    let client = client()?;
     let gp_resp = client
         .get(&source_url)
         .send()
@@ -253,11 +333,8 @@ pub async fn songsterr_fetch_tab(song_id: u64) -> Result<Vec<u8>, String> {
         ));
     }
 
-    gp_resp
-        .bytes()
-        .await
-        .map(|b| b.to_vec())
-        .map_err(|e| format!("Failed to read tab bytes: {}", e))
+    let bytes = read_body_capped(gp_resp, "Tab file").await?;
+    Ok(tauri::ipc::Response::new(bytes))
 }
 
 /// Check if a song is unrestricted, restricted by copyright, or unpublished/private.
@@ -265,69 +342,41 @@ pub async fn songsterr_fetch_tab(song_id: u64) -> Result<Vec<u8>, String> {
 /// Returns one of: "unrestricted", "restricted", "unpublished", or "error".
 #[tauri::command]
 pub async fn songsterr_check_restriction(song_id: u64) -> Result<String, String> {
-    let client = build_client()?;
-
-    // Fetch meta
-    let meta_url = format!("https://www.songsterr.com/api/meta/{}", song_id);
-    let meta_resp = match client
-        .get(&meta_url)
-        .header("Accept", "application/json")
-        .send()
-        .await
-    {
-        Ok(resp) => resp,
-        Err(_) => return Ok("error".to_string()),
-    };
-
-    if meta_resp.status().as_u16() == 403 {
-        return Ok("unpublished".to_string());
-    }
-
-    if !meta_resp.status().is_success() {
-        return Ok("error".to_string());
-    }
-
-    let meta: MetaResponse = match meta_resp.json().await {
-        Ok(m) => m,
-        Err(_) => return Ok("error".to_string()),
-    };
-
-    // Fetch revision
-    let revision_url = format!(
-        "https://www.songsterr.com/api/revision/{}",
-        meta.revision_id
-    );
-    let rev_resp = match client
-        .get(&revision_url)
-        .header("Accept", "application/json")
-        .send()
-        .await
-    {
-        Ok(resp) => resp,
-        Err(_) => return Ok("error".to_string()),
-    };
-
-    if !rev_resp.status().is_success() {
-        return Ok("error".to_string());
-    }
-
-    let revision: RevisionResponse = match rev_resp.json().await {
-        Ok(r) => r,
-        Err(_) => return Ok("error".to_string()),
-    };
-
-    match revision.source {
-        Some(url) if !url.trim().is_empty() => Ok("unrestricted".to_string()),
-        _ => Ok("restricted".to_string()),
+    match resolve_source(song_id).await {
+        Ok(ResolvedSource::Available(_)) => Ok("unrestricted".to_string()),
+        Ok(ResolvedSource::Restricted) => Ok("restricted".to_string()),
+        Ok(ResolvedSource::Unpublished) => Ok("unpublished".to_string()),
+        Err(detail) => {
+            // The frontend treats "error" as a status, not a failure — keep
+            // that contract but stop swallowing the diagnostic entirely.
+            eprintln!(
+                "[songsterr] restriction check failed for {}: {}",
+                song_id, detail
+            );
+            Ok("error".to_string())
+        }
     }
 }
 
-/// Fetch raw body of a URL as a String to bypass CORS (generic helper).
+/// Fetch the raw body of a URL as a String to bypass CORS.
+///
+/// Restricted to Songsterr's own hosts and its tab CDNs — this exists for the
+/// restricted-tab downloader, not as an open relay the webview could use to
+/// reach arbitrary servers.
 #[tauri::command]
 pub async fn songsterr_fetch_url(url: String) -> Result<String, String> {
-    let client = build_client()?;
+    let parsed = reqwest::Url::parse(&url).map_err(|e| format!("Invalid URL '{}': {}", url, e))?;
+    if parsed.scheme() != "https" {
+        return Err("Only https:// URLs are allowed.".to_string());
+    }
+    let host = parsed.host_str().unwrap_or_default();
+    if !FETCH_URL_ALLOWED_HOSTS.contains(&host) {
+        return Err(format!("Host '{}' is not an allowed Songsterr host.", host));
+    }
+
+    let client = client()?;
     let response = client
-        .get(&url)
+        .get(parsed)
         .send()
         .await
         .map_err(|e| format!("Failed to request URL: {}", e))?;
@@ -336,9 +385,6 @@ pub async fn songsterr_fetch_url(url: String) -> Result<String, String> {
         return Err(format!("Request returned HTTP {}", response.status()));
     }
 
-    response
-        .text()
-        .await
-        .map_err(|e| format!("Failed to read response body: {}", e))
+    let bytes = read_body_capped(response, "Response body").await?;
+    String::from_utf8(bytes).map_err(|e| format!("Response body is not valid UTF-8: {}", e))
 }
-

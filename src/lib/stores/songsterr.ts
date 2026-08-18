@@ -168,9 +168,10 @@ export function selectSong(song: SongsterrSong | null): void {
 export async function fetchTabBytes(songId: number): Promise<Uint8Array> {
   songsterrStore.update(s => ({ ...s, isFetching: true, error: null }));
   try {
-    const bytes: number[] = await invoke('songsterr_fetch_tab', { songId });
+    // songsterr_fetch_tab returns a raw-bytes IPC response (ArrayBuffer), not JSON
+    const buf: ArrayBuffer = await invoke('songsterr_fetch_tab', { songId });
     songsterrStore.update(s => ({ ...s, isFetching: false }));
-    return new Uint8Array(bytes);
+    return new Uint8Array(buf);
   } catch (err) {
     songsterrStore.update(s => ({
       ...s,

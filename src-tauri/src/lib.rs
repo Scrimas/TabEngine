@@ -7,8 +7,6 @@
 mod commands;
 mod songsterr;
 
-// use tauri::Manager;
-
 pub fn run() {
     // NOTE: do NOT force WEBKIT_DISABLE_DMABUF_RENDERER=1 here. It once
     // guarded AppImage runs against a WebKitGTK EGL_BAD_PARAMETER abort (#2),
@@ -22,11 +20,9 @@ pub fn run() {
         // ── Plugins ───────────────────────────────────────────────────────
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_shell::init())
-
         // ── IPC commands ──────────────────────────────────────────────────
         .invoke_handler(tauri::generate_handler![
             commands::read_gp_file,
-            commands::save_gp_file,
             commands::save_gp_file_to_dir,
             commands::import_gp_file,
             commands::get_app_data_dir,
@@ -39,19 +35,6 @@ pub fn run() {
             songsterr::songsterr_check_restriction,
             songsterr::songsterr_fetch_url,
         ])
-
-        // ── Window setup ──────────────────────────────────────────────────
-        .setup(|_app| {
-            // #[cfg(debug_assertions)]
-            // {
-            //     // Open DevTools automatically in debug builds
-            //     if let Some(window) = app.get_webview_window("main") {
-            //         window.open_devtools();
-            //     }
-            // }
-            Ok(())
-        })
-
         .run(tauri::generate_context!())
         .expect("error while running TabEngine");
 }
