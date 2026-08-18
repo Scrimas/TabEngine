@@ -18,6 +18,7 @@
   } from '$lib/stores/playlists';
   import PlaylistSongList from './PlaylistSongList.svelte';
   import { toast, confirmDialog } from '$lib/stores/notifications';
+  import { overlayOpened, overlayClosed } from '$lib/stores/overlays';
   import type { LibraryEntry, LibrarySortField } from '$lib/types';
 
   const dispatch = createEventDispatcher<{ load: string; 'open-browser': void; 'open-playlists': void }>();
@@ -166,14 +167,46 @@
     e.stopPropagation();
     contextMenu = { x: e.clientX, y: e.clientY, entry };
     contextMenuAddMode = false;
+    overlayOpened();
     // Right-clicking doesn't move DOM focus, and in the Tauri webview that can
     // leave the very next keydown (Escape) undelivered until something is
     // clicked. Force focus onto the menu itself so Escape works immediately.
     await tick();
+    clampContextMenu();
     ctxMenuEl?.focus();
   }
 
-  function closeContextMenu() { contextMenu = null; contextMenuAddMode = false; }
+  /** Keep the menu fully inside the viewport (it opens at the pointer). */
+  function clampContextMenu() {
+    if (!contextMenu || !ctxMenuEl) return;
+    const rect = ctxMenuEl.getBoundingClientRect();
+    const x = Math.min(contextMenu.x, window.innerWidth  - rect.width  - 8);
+    const y = Math.min(contextMenu.y, window.innerHeight - rect.height - 8);
+    if (x !== contextMenu.x || y !== contextMenu.y) {
+      contextMenu = { ...contextMenu, x: Math.max(8, x), y: Math.max(8, y) };
+    }
+  }
+
+  function closeContextMenu() {
+    if (contextMenu) overlayClosed();
+    contextMenu = null;
+    contextMenuAddMode = false;
+  }
+
+  /** Arrow-key navigation between the menu's items; Escape closes. */
+  function handleCtxMenuKeyDown(e: KeyboardEvent) {
+    if (!ctxMenuEl) return;
+    if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return;
+    e.preventDefault();
+    e.stopPropagation();
+    const items = Array.from(ctxMenuEl.querySelectorAll<HTMLButtonElement>('.ctx-item'));
+    if (items.length === 0) return;
+    const idx = items.indexOf(document.activeElement as HTMLButtonElement);
+    const next = e.key === 'ArrowDown'
+      ? (idx === -1 || idx === items.length - 1 ? 0 : idx + 1)
+      : (idx <= 0 ? items.length - 1 : idx - 1);
+    items[next].focus();
+  }
 
   function handleWindowKeyDown(e: KeyboardEvent) {
     if (e.key === 'Escape' && contextMenu) closeContextMenu();
@@ -398,7 +431,8 @@
   {/if}
 
   <!-- File list -->
-  <div class="file-list" role="list">
+  <!-- Cards act as buttons, so no list semantics (role=list requires listitem children) -->
+  <div class="file-list">
     {#if filtered.length === 0}
       <div class="empty-msg">
         {#if searchQuery}
@@ -518,12 +552,14 @@
   {#if contextMenu}
     <!-- svelte-ignore a11y-click-events-have-key-events a11y-no-static-element-interactions -->
     <div class="ctx-backdrop" on:click={closeContextMenu}></div>
+    <!-- svelte-ignore a11y-no-noninteractive-element-interactions -->
     <div
       class="ctx-menu"
       style="left:{contextMenu.x}px;top:{contextMenu.y}px"
       role="menu"
       tabindex="-1"
       bind:this={ctxMenuEl}
+      on:keydown={handleCtxMenuKeyDown}
     >
       {#if !contextMenuAddMode}
         <!-- svelte-ignore a11y-click-events-have-key-events -->
@@ -933,7 +969,8 @@
     opacity: 0;
     transition: opacity var(--transition), background var(--transition), color var(--transition);
   }
-  .file-card:hover .rename-btn {
+  .file-card:hover .rename-btn,
+  .rename-btn:focus-visible {
     opacity: 1;
   }
   .rename-btn:hover {

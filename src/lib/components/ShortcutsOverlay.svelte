@@ -1,5 +1,6 @@
 <script lang="ts">
   import { createEventDispatcher } from 'svelte';
+  import { focusTrap } from '$lib/actions/focusTrap';
 
   export let open = false;
   const dispatch = createEventDispatcher<{ close: void }>();
@@ -13,6 +14,8 @@
       items: [
         { keys: ['Space'],  label: 'Play / pause' },
         { keys: ['Esc'],    label: 'Stop' },
+        { keys: ['['],      label: 'Loop start at current bar' },
+        { keys: [']'],      label: 'Loop end at current bar' },
       ],
     },
     {
@@ -20,6 +23,7 @@
       items: [
         { keys: ['←', '→'], label: 'Previous / next bar' },
         { keys: ['↑', '↓'], label: 'Row above / below' },
+        { keys: ['Ctrl', '↑↓'], label: 'Reorder playlist row (focused)' },
       ],
     },
     {
@@ -49,18 +53,6 @@
     },
   ];
 
-  // Focus the panel on open so Escape works immediately; restore afterwards.
-  let previouslyFocused: HTMLElement | null = null;
-  let panelEl: HTMLDivElement | null = null;
-
-  $: if (open && panelEl) {
-    previouslyFocused = document.activeElement as HTMLElement | null;
-    panelEl.focus();
-  } else if (!open && previouslyFocused) {
-    previouslyFocused.focus?.();
-    previouslyFocused = null;
-  }
-
   function handleKeyDown(e: KeyboardEvent) {
     if (!open) return;
     if (e.key === 'Escape') {
@@ -81,8 +73,7 @@
     role="dialog"
     aria-modal="true"
     aria-label="Keyboard shortcuts"
-    tabindex="-1"
-    bind:this={panelEl}
+    use:focusTrap
   >
     <div class="shortcuts-header">
       <h2>Keyboard shortcuts</h2>

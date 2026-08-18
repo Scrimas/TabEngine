@@ -15,8 +15,9 @@
   import {
     playPause, stop, seekToPrevBar, seekToNextBar, seekToPrevRow, seekToNextRow,
     setThemeSettings, setMetronomeVolumeLimit,
-    setStaveProfile, setLayoutMode,
+    setStaveProfile, setLayoutMode, setLoopBoundAtCurrentBar,
   } from '$lib/alphatab/AlphaTabManager';
+  import { anyOverlayOpen } from '$lib/stores/overlays';
   import { getCurrentWindow } from '@tauri-apps/api/window';
 
   import { open as tauriOpen } from '@tauri-apps/plugin-dialog';
@@ -207,14 +208,30 @@
     if (['INPUT', 'TEXTAREA', 'SELECT'].includes((e.target as HTMLElement)?.tagName)) return;
 
     switch (true) {
-      case e.code === 'Space' && !e.ctrlKey:
+      case e.code === 'Space' && !e.ctrlKey: {
+        // Don't hijack Space from a focused button/link — let it activate
+        // that control natively instead of also toggling playback.
+        const t = e.target as HTMLElement | null;
+        if (t && (t.tagName === 'BUTTON' || t.tagName === 'A'
+          || t.getAttribute?.('role') === 'button' || t.isContentEditable)) break;
         e.preventDefault();
         playPause();
         break;
+      }
       case e.code === 'Escape':
         // Let an open overlay's own Escape handler close it instead of also
-        // stopping playback as an unrelated side effect.
-        if (!settingsOpen && !browserOpen && !playlistsOpen && !shortcutsOpen) stop();
+        // stopping playback as an unrelated side effect. Popovers and context
+        // menus report themselves via the overlays store.
+        if (!settingsOpen && !browserOpen && !playlistsOpen && !shortcutsOpen
+          && !anyOverlayOpen()) stop();
+        break;
+      case e.key === '[' && !e.ctrlKey && !e.altKey:
+        e.preventDefault();
+        setLoopBoundAtCurrentBar('start');
+        break;
+      case e.key === ']' && !e.ctrlKey && !e.altKey:
+        e.preventDefault();
+        setLoopBoundAtCurrentBar('end');
         break;
       case (e.key === '?' && !e.ctrlKey && !e.altKey) || (e.key === '/' && e.ctrlKey):
         e.preventDefault();

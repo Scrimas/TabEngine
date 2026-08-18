@@ -2,7 +2,7 @@
   import { createEventDispatcher } from 'svelte';
   import { instrumentCategory, formatTuning, formatViews } from '$lib/types';
   import type { SongsterrSong } from '$lib/types';
-  import { fetchTabBytes, fetchRestrictedTabBytes, selectSong, songsterrStore } from '$lib/stores/songsterr';
+  import { fetchTabBytes, fetchRestrictedTabBytes, selectSong, songsterrStore, songsterrSongUrl } from '$lib/stores/songsterr';
   import { open as shellOpen } from '@tauri-apps/plugin-shell';
 
   export let song: SongsterrSong;
@@ -26,9 +26,7 @@
     try {
       let bytes: Uint8Array;
       if (song.restrictionStatus === 'restricted') {
-        const slug = song.title.toLowerCase().replace(/[^a-z0-9]+/g, '-');
-        const songUrl = `https://www.songsterr.com/a/wsa/${song.artist.name.toLowerCase().replace(/[^a-z0-9]+/g, '-')}-${slug}-tab-s${song.id}`;
-        bytes = await fetchRestrictedTabBytes(songUrl, song.title);
+        bytes = await fetchRestrictedTabBytes(songsterrSongUrl(song), song.title);
       } else {
         bytes = await fetchTabBytes(song.id);
       }
@@ -41,9 +39,7 @@
   }
 
   function handleOpenWeb() {
-    const slug = song.title.toLowerCase().replace(/[^a-z0-9]+/g, '-');
-    const url = `https://www.songsterr.com/a/wsa/${song.artist.name.toLowerCase().replace(/[^a-z0-9]+/g, '-')}-${slug}-tab-s${song.id}`;
-    shellOpen(url);
+    shellOpen(songsterrSongUrl(song));
   }
 
   function handleClose() {
@@ -51,7 +47,8 @@
   }
 </script>
 
-<div class="preview-panel" role="dialog" aria-label="Song preview">
+<!-- A pane inside the browser dialog, not a dialog of its own (no nested role=dialog) -->
+<div class="preview-panel" role="region" aria-label="Song preview">
   <div class="preview-header">
     <div class="preview-titles">
       <h2 class="preview-title truncate">{song.title}</h2>

@@ -250,6 +250,7 @@
         class="track-tab"
         class:active={selectedTrackIndex === null}
         on:click={() => selectTrack(null)}
+        aria-pressed={selectedTrackIndex === null}
       >
         <span class="tab-dot" style="background:#aeb2bc;{selectedTrackIndex !== null ? 'opacity:.4' : ''}"></span>
         All
@@ -260,6 +261,7 @@
           class:active={selectedTrackIndex === track.index}
           on:click={() => selectTrack(track.index)}
           title={track.name}
+          aria-pressed={selectedTrackIndex === track.index}
         >
           <span class="tab-dot" style="background:{track.color};{selectedTrackIndex !== track.index ? 'opacity:.4' : ''}"></span>
           {track.instrument}
@@ -273,8 +275,9 @@
 
   <!-- Drop hint -->
   {#if !$playerStore.sfLoaded || (!scoreReady && $playerStore.totalTicks === 0)}
-    <div class="drop-hint" class:active={isDragOver} aria-hidden="true">
-      <div class="drop-icon">
+    <!-- Visible instructions must stay in the a11y tree; only the icon is decorative -->
+    <div class="drop-hint" class:active={isDragOver}>
+      <div class="drop-icon" aria-hidden="true">
         <!-- currentColor + opacity instead of baked light-theme inks so the
              icon stays visible on the dark theme -->
         <svg width="52" height="52" viewBox="0 0 52 52" fill="none" style="color: var(--text-primary)">

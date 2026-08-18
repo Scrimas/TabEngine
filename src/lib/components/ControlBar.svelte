@@ -13,6 +13,7 @@
   import { toast } from '$lib/stores/notifications';
   import { playerStore, speedTrainerStore } from '$lib/stores/player';
   import { libraryStore } from '$lib/stores/library';
+  import { overlayOpened, overlayClosed } from '$lib/stores/overlays';
   import { settingsStore, updateSettings } from '$lib/stores/settings';
   import { formatTime } from '$lib/types';
 
@@ -304,6 +305,43 @@
   }
   function autofocus(node: HTMLElement) { node.focus(); }
 
+  // ── Popover ↔ global-Escape coordination ────────────────────────────────────
+  // Report to the overlays store so App.svelte's Escape handler skips
+  // stopping playback while a popover is open (first Escape closes it).
+  $: anyPopoverOpen = showTempoPopover || showMetronomePopover
+    || showGotoPopover || showExportPopover;
+  let prevPopoverOpen = false;
+  $: if (anyPopoverOpen !== prevPopoverOpen) {
+    prevPopoverOpen = anyPopoverOpen;
+    if (anyPopoverOpen) overlayOpened(); else overlayClosed();
+  }
+
+  function closeAllPopovers() {
+    showTempoPopover     = false;
+    showMetronomePopover = false;
+    showGotoPopover      = false;
+    showExportPopover    = false;
+  }
+
+  function handleWindowKeyDown(e: KeyboardEvent) {
+    if (e.key === 'Escape' && anyPopoverOpen) closeAllPopovers();
+  }
+
+  // The popovers are anchored with fixed coordinates measured at open time —
+  // stale after a window resize, so just close them.
+  function handleWindowResize() {
+    if (anyPopoverOpen) closeAllPopovers();
+  }
+
+  // ── Scrubber hover time preview ─────────────────────────────────────────────
+  let hoverFrac: number | null = null;
+  function onScrubberPointerMove(e: PointerEvent) {
+    if (!canPlay) return;
+    const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+    hoverFrac = Math.min(1, Math.max(0, (e.clientX - rect.left) / rect.width));
+  }
+  function onScrubberPointerLeave() { hoverFrac = null; }
+
   // ── Shared popover dismissal ────────────────────────────────────────────────
   function clickOutside(node: HTMLElement, onOutside: () => void) {
     function handleClick(e: MouseEvent) {
@@ -317,6 +355,8 @@
   function closeMetronomePopover() { showMetronomePopover = false; }
   function closeTempoPopover()     { showTempoPopover = false; }
 </script>
+
+<svelte:window on:keydown={handleWindowKeyDown} on:resize={handleWindowResize} />
 
 <footer class="control-bar" aria-label="Playback controls">
 
@@ -354,7 +394,17 @@
   <span class="time-display" aria-live="off" aria-label="Elapsed time">{displayTime}</span>
 
   <!-- Scrubber -->
-  <div class="scrubber-wrap">
+  <!-- svelte-ignore a11y-no-static-element-interactions -->
+  <div
+    class="scrubber-wrap"
+    on:pointermove={onScrubberPointerMove}
+    on:pointerleave={onScrubberPointerLeave}
+  >
+    {#if hoverFrac !== null && canPlay}
+      <div class="scrub-preview" style="left:{hoverFrac * 100}%">
+        {formatTime(hoverFrac * $playerStore.totalTime)}
+      </div>
+    {/if}
     <div class="scrubber-fill" style="width:{displayProgress * 100}%"></div>
     <input
       type="range"
@@ -787,6 +837,23 @@
     width: 100%;
     position: relative;
     z-index: 1;
+  }
+  .scrub-preview {
+    position: absolute;
+    bottom: calc(100% + 2px);
+    transform: translateX(-50%);
+    padding: 3px 8px;
+    border-radius: 6px;
+    background: var(--bg-elevated);
+    border: 1px solid var(--border);
+    box-shadow: var(--shadow-sm);
+    font-family: var(--font-mono);
+    font-size: 11px;
+    font-variant-numeric: tabular-nums;
+    color: var(--text-primary);
+    pointer-events: none;
+    white-space: nowrap;
+    z-index: 2;
   }
   .scrubber-wrap input[type=range]::-webkit-slider-runnable-track {
     background: var(--slider-track);

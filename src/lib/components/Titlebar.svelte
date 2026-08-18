@@ -1,6 +1,7 @@
 <script lang="ts">
-  import { createEventDispatcher } from 'svelte';
+  import { createEventDispatcher, onMount } from 'svelte';
   import { getCurrentWindow } from '@tauri-apps/api/window';
+  import type { UnlistenFn } from '@tauri-apps/api/event';
 
   export let sidebarOpen = true;
   export let mixerOpen   = true;
@@ -14,6 +15,19 @@
   function minimize()   { win.minimize(); }
   function toggleMax()  { win.toggleMaximize(); }
   function close()      { win.close(); }
+
+  // Track maximization so the middle window control shows the right icon
+  // (maximize vs restore) and label.
+  let isMaximized = false;
+  async function refreshMaximized() {
+    try { isMaximized = await win.isMaximized(); } catch { /* keep last */ }
+  }
+  onMount(() => {
+    refreshMaximized();
+    let unlisten: UnlistenFn | null = null;
+    win.onResized(() => refreshMaximized()).then(fn => { unlisten = fn; });
+    return () => unlisten?.();
+  });
 </script>
 
 <header class="titlebar">
@@ -159,11 +173,25 @@
         <line x1="5" y1="12" x2="19" y2="12"/>
       </svg>
     </button>
-    <button class="tb-btn" on:click={toggleMax} title="Maximize" aria-label="Maximize">
-      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-           stroke-width="1.8">
-        <rect x="6" y="6" width="12" height="12" rx="2"/>
-      </svg>
+    <button
+      class="tb-btn"
+      on:click={toggleMax}
+      title={isMaximized ? 'Restore' : 'Maximize'}
+      aria-label={isMaximized ? 'Restore window' : 'Maximize window'}
+    >
+      {#if isMaximized}
+        <!-- Restore: two offset squares -->
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+             stroke-width="1.8" stroke-linejoin="round">
+          <rect x="5" y="9" width="10" height="10" rx="2"/>
+          <path d="M9 6.5V6a2 2 0 0 1 2-2h6a2 2 0 0 1 2 2v6a2 2 0 0 1-2 2h-0.5"/>
+        </svg>
+      {:else}
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+             stroke-width="1.8">
+          <rect x="6" y="6" width="12" height="12" rx="2"/>
+        </svg>
+      {/if}
     </button>
     <button class="tb-btn close" on:click={close} title="Close" aria-label="Close">
       <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor"
@@ -205,6 +233,9 @@
     margin-right: 5px;
     padding: 3px;
     box-sizing: border-box;
+    /* Children of the drag region swallow pointer events and would create
+       dead spots where the window can't be dragged. */
+    pointer-events: none;
   }
 
   .app-name {
@@ -213,6 +244,7 @@
     letter-spacing: 0.01em;
     color: var(--text-primary);
     margin-right: 4px;
+    pointer-events: none;
   }
 
   .app-name-tab {

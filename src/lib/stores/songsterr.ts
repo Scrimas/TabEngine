@@ -137,6 +137,13 @@ export function setInstrumentFilter(instrument: string | null): void {
   executeSearch(trimmed, 0, true);
 }
 
+/** Canonical Songsterr web URL for a song (used for restricted fetches and
+ *  the "open on Songsterr" action — one implementation, not three copies). */
+export function songsterrSongUrl(song: SongsterrSong): string {
+  const slugify = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, '-');
+  return `https://www.songsterr.com/a/wsa/${slugify(song.artist.name)}-${slugify(song.title)}-tab-s${song.id}`;
+}
+
 // ── Selection ────────────────────────────────────────────────────────────────
 
 export function selectSong(song: SongsterrSong | null): void {

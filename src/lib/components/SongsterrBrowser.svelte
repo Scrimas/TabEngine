@@ -1,6 +1,7 @@
 <script lang="ts">
   import { createEventDispatcher, onMount, onDestroy, tick } from 'svelte';
-  import { songsterrStore, searchDebounced, loadMore, selectSong, resetSongsterr, fetchTabBytes, fetchRestrictedTabBytes, setInstrumentFilter } from '$lib/stores/songsterr';
+  import { songsterrStore, searchDebounced, loadMore, selectSong, fetchTabBytes, fetchRestrictedTabBytes, setInstrumentFilter, songsterrSongUrl } from '$lib/stores/songsterr';
+  import { focusTrap } from '$lib/actions/focusTrap';
 
   const INSTRUMENT_FILTERS: { label: string; value: string | null }[] = [
     { label: 'All',    value: null },
@@ -52,13 +53,13 @@
     searchDebounced((e.target as HTMLInputElement).value);
   }
 
+  // Window-level so Escape works regardless of where focus currently sits.
   function handleKeyDown(e: KeyboardEvent) {
-    if (e.key === 'Escape') {
-      if ($songsterrStore.selected) {
-        selectSong(null);
-      } else {
-        dispatch('close');
-      }
+    if (!open || e.key !== 'Escape') return;
+    if ($songsterrStore.selected) {
+      selectSong(null);
+    } else {
+      dispatch('close');
     }
   }
 
@@ -70,7 +71,8 @@
     loadFromBytes(bytes);
     setCurrentSongsterr(song, bytes);
     dispatch('close');
-    resetSongsterr();
+    // Deliberately NOT resetting the search state: reopening the browser
+    // should show the same query/results, not a blank slate.
   }
 
   function handleLoad(e: CustomEvent<{ song: SongsterrSong; bytes: Uint8Array }>) {
@@ -108,9 +110,7 @@
     try {
       let bytes: Uint8Array;
       if (song.restrictionStatus === 'restricted') {
-        const slug = song.title.toLowerCase().replace(/[^a-z0-9]+/g, '-');
-        const songUrl = `https://www.songsterr.com/a/wsa/${song.artist.name.toLowerCase().replace(/[^a-z0-9]+/g, '-')}-${slug}-tab-s${song.id}`;
-        bytes = await fetchRestrictedTabBytes(songUrl, song.title);
+        bytes = await fetchRestrictedTabBytes(songsterrSongUrl(song), song.title);
       } else {
         bytes = await fetchTabBytes(song.id);
       }
@@ -121,22 +121,25 @@
   }
 </script>
 
+<svelte:window on:keydown={handleKeyDown} />
+
 {#if open}
   <!-- Backdrop -->
   <div
     class="browser-backdrop"
     on:click={handleBackdropClick}
-    on:keydown={handleKeyDown}
     role="presentation"
   ></div>
 
   <!-- Centering Layout Wrapper (avoids translate vs scale conflicts) -->
-  <div class="browser-wrapper" on:keydown={handleKeyDown} role="presentation">
+  <div class="browser-wrapper" role="presentation">
     <!-- Modal Window -->
     <aside
       class="browser-modal glass"
       role="dialog"
+      aria-modal="true"
       aria-label="Songsterr Browser"
+      use:focusTrap
     >
       <!-- Left Pane: Search & Results -->
       <div class="search-pane">

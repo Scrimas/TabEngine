@@ -793,6 +793,50 @@ function forceClearLoopSelection(): void {
   loopEndBeat   = null;
 }
 
+/**
+ * Keyboard loop editing: anchor the loop start ('[') or end (']') at the bar
+ * under the playback cursor, creating the loop or extending the existing one.
+ * Enables looping if it wasn't on.
+ */
+export function setLoopBoundAtCurrentBar(which: 'start' | 'end'): void {
+  if (!api?.score) return;
+  const trackIdx = visibleTrackIndices[0] ?? 0;
+  const bar = api.score.tracks[trackIdx]?.staves[0]?.bars[currentModelBarIndex()];
+  if (!bar) return;
+  const resolved = loopBeatsForBar(bar);
+  if (!resolved) return;
+
+  const range   = api.playbackRange;
+  let startBeat = resolved.startBeat;
+  let endBeat   = resolved.endBeat;
+  let startTick = resolved.startTick;
+  let endTick   = resolved.endTick;
+
+  // Keep the other bound of an existing loop when it still makes sense
+  // (start must stay before end); otherwise the loop collapses to this bar.
+  if (which === 'start' && range && loopEndBeat && range.endTick > resolved.startTick) {
+    endTick = range.endTick;
+    endBeat = loopEndBeat;
+  } else if (which === 'end' && range && loopStartBeat && range.startTick < resolved.endTick) {
+    startTick = range.startTick;
+    startBeat = loopStartBeat;
+  }
+
+  const tick = api.tickPosition;
+  try {
+    api.highlightPlaybackRange(startBeat, endBeat);
+  } catch (err) {
+    // Highlight can fail under lazy rendering; the range below still applies.
+    console.warn('[AlphaTabManager] setLoopBoundAtCurrentBar: highlight failed', err);
+  }
+  api.playbackRange = { startTick, endTick };
+  api.tickPosition = tick;
+  if (!api.isLooping) {
+    api.isLooping = true;
+    updatePlayer({ isLooping: true });
+  }
+}
+
 /** First/last beat of the bar under the current playback cursor, for the
  *  currently visible track — used to seed a loop range with no prior
  *  selection. Returns null if the score/track/bar data isn't available. */

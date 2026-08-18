@@ -7,6 +7,7 @@
   import { settingsStore, updateSettings } from '$lib/stores/settings';
   import { setLibrary, mergeScannedEntries, resolveLibraryDir } from '$lib/stores/library';
   import { toast, confirmDialog } from '$lib/stores/notifications';
+  import { focusTrap } from '$lib/actions/focusTrap';
   import type { LibraryEntry } from '$lib/types';
 
   export let open = false;
@@ -121,7 +122,7 @@
   ></div>
 
   <!-- Dialog -->
-  <div class="settings-modal" role="dialog" aria-modal="true" aria-label="Settings">
+  <div class="settings-modal" role="dialog" aria-modal="true" aria-label="Settings" use:focusTrap>
     <header class="settings-header">
       <div class="header-title">
         <svg class="gear-icon" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">

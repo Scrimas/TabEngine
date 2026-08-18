@@ -6,6 +6,7 @@
   } from '$lib/stores/playlists';
   import { libraryStore, recordOpen } from '$lib/stores/library';
   import PlaylistSongList from './PlaylistSongList.svelte';
+  import { focusTrap } from '$lib/actions/focusTrap';
   import { confirmDialog } from '$lib/stores/notifications';
   import type { Playlist } from '$lib/types';
 
@@ -112,7 +113,7 @@
   ></div>
 
   <div class="playlists-wrapper" on:keydown={handleKeyDown} role="presentation">
-    <aside class="playlists-modal glass" role="dialog" aria-label="Playlists">
+    <aside class="playlists-modal glass" role="dialog" aria-modal="true" aria-label="Playlists" use:focusTrap>
       <!-- Left Pane: playlist list -->
       <div class="playlist-pane">
         <div class="playlist-pane-header">

@@ -5,7 +5,7 @@
   // want. Instead the dragged row follows the pointer directly via a
   // translateY transform, swapping live with `reorderPlaylist` as it crosses
   // a neighboring row's midpoint.
-  import { createEventDispatcher } from 'svelte';
+  import { createEventDispatcher, tick } from 'svelte';
   import { reorderPlaylist } from '$lib/stores/playlists';
   import type { Playlist, LibraryEntry } from '$lib/types';
 
@@ -57,6 +57,23 @@
     draggingIndex = null;
     dragOffsetY = 0;
   }
+
+  /** Ctrl+↑/↓ moves the focused row without needing the pointer grip. */
+  async function handleRowKeyDown(e: KeyboardEvent, item: PlaylistItem, index: number) {
+    if (e.key === 'Enter' && item.entry) {
+      dispatch('play', item.path);
+      return;
+    }
+    if (!e.ctrlKey || (e.key !== 'ArrowUp' && e.key !== 'ArrowDown')) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const target = e.key === 'ArrowUp' ? index - 1 : index + 1;
+    if (target < 0 || target >= items.length) return;
+    reorderPlaylist(playlist.id, index, target);
+    // Keep keyboard focus on the moved row after the list re-renders.
+    await tick();
+    rowEls[target]?.focus();
+  }
 </script>
 
 {#if items.length === 0}
@@ -64,7 +81,8 @@
     <p>No songs yet. Right-click a file in the library and choose "Add to playlist".</p>
   </div>
 {:else}
-  <div class="song-list" role="list">
+  <!-- Rows act as buttons, so no list semantics (role=list requires listitem children) -->
+  <div class="song-list">
     {#each items as item, i (item.path)}
       {@const missing = !item.entry}
       <!-- svelte-ignore a11y-interactive-supports-focus a11y-no-noninteractive-tabindex a11y-no-static-element-interactions -->
@@ -80,7 +98,7 @@
         aria-disabled={missing}
         title={missing ? `File not found: ${item.path}` : undefined}
         on:click={() => { if (!missing) dispatch('play', item.path); }}
-        on:keydown={(e) => { if (e.key === 'Enter' && !missing) dispatch('play', item.path); }}
+        on:keydown={(e) => handleRowKeyDown(e, item, i)}
       >
         <!-- svelte-ignore a11y-click-events-have-key-events a11y-no-static-element-interactions -->
         <span
