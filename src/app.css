@@ -358,3 +358,54 @@ input[type='range']:disabled {
   }
   .lift:hover, .lift:active, .press:active { transform: none !important; }
 }
+
+/* ── Print (best-effort: Export → Print…) ────────────────────────────────────
+   Hide the app chrome and let the rendered sheet flow across pages. The
+   score's own colors are kept (parchment prints fine); lazy rendering is
+   temporarily disabled by printScore() so every system is in the DOM. */
+@media print {
+  .titlebar,
+  .sidebar,
+  .mixer,
+  .control-bar,
+  .resize-handle,
+  .score-toolbar,
+  .toast-stack,
+  .loop-handle {
+    display: none !important;
+  }
+
+  html, body, #app {
+    height: auto !important;
+    overflow: visible !important;
+    background: #fff !important;
+  }
+
+  .app-shell {
+    display: block !important;
+    height: auto !important;
+    overflow: visible !important;
+    background: #fff !important;
+  }
+
+  .score-viewer {
+    display: block !important;
+    overflow: visible !important;
+    height: auto !important;
+  }
+
+  .at-viewport {
+    overflow: visible !important;
+    height: auto !important;
+    padding: 0 !important;
+  }
+
+  .score-card {
+    max-width: none !important;
+    border: none !important;
+    box-shadow: none !important;
+    border-radius: 0 !important;
+    padding: 0 !important;
+    background: #fff !important;
+  }
+}

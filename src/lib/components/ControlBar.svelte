@@ -5,8 +5,12 @@
     setMetronomeEnabled, setCountInEnabled, setPlaybackSpeed, setDisplayScale,
     seekToFraction, setLooping, setSpeedTrainerEnabled,
     getScoreSections, getBarCount, seekToBar,
+    exportMidi, exportGp, exportWav, printScore,
   } from '$lib/alphatab/AlphaTabManager';
   import type { ScoreSection } from '$lib/alphatab/AlphaTabManager';
+  import { save as tauriSave } from '@tauri-apps/plugin-dialog';
+  import { invoke } from '@tauri-apps/api/core';
+  import { toast } from '$lib/stores/notifications';
   import { playerStore, speedTrainerStore } from '$lib/stores/player';
   import { libraryStore } from '$lib/stores/library';
   import { settingsStore, updateSettings } from '$lib/stores/settings';
@@ -65,8 +69,9 @@
   let metronomePopoverStyle = '';
   let metronomeAnchorEl: HTMLDivElement;
   function toggleMetronomePopover() {
-    showTempoPopover = false;
-    showGotoPopover  = false;
+    showTempoPopover  = false;
+    showGotoPopover   = false;
+    showExportPopover = false;
     showMetronomePopover = !showMetronomePopover;
     if (showMetronomePopover) metronomePopoverStyle = anchoredStyle(metronomeAnchorEl);
   }
@@ -81,6 +86,7 @@
   function toggleGotoPopover() {
     showTempoPopover     = false;
     showMetronomePopover = false;
+    showExportPopover    = false;
     showGotoPopover = !showGotoPopover;
     if (showGotoPopover) {
       gotoSections = getScoreSections();
@@ -99,6 +105,99 @@
   function gotoSection(s: ScoreSection) {
     seekToBar(s.barIndex);
     showGotoPopover = false;
+  }
+
+  // ── Export popover ────────────────────────────────────────────────────────
+  let showExportPopover  = false;
+  let exportPopoverStyle = '';
+  let exportAnchorEl: HTMLDivElement;
+  let exportingWav = false;
+  function toggleExportPopover() {
+    showTempoPopover     = false;
+    showMetronomePopover = false;
+    showGotoPopover      = false;
+    showExportPopover = !showExportPopover;
+    if (showExportPopover) exportPopoverStyle = anchoredStyle(exportAnchorEl);
+  }
+  function closeExportPopover() { showExportPopover = false; }
+
+  /** Suggested filename stem for exports: current file, or Songsterr song. */
+  function suggestedStem(): string {
+    const p = $libraryStore.currentPath;
+    if (p) {
+      const base = p.split(/[\\/]/).pop() ?? 'score';
+      return base.replace(/\.[^.]+$/, '');
+    }
+    const song = $libraryStore.currentSongsterrSong;
+    if (song) return `${song.artist.name} - ${song.title}`.replace(/[<>:"/\\|?*]/g, '_');
+    return 'score';
+  }
+
+  /** Ask for a destination, then write the bytes through the Rust backend. */
+  async function saveExport(bytes: Uint8Array, ext: 'mid' | 'wav' | 'gp', label: string) {
+    const path = await tauriSave({
+      defaultPath: `${suggestedStem()}.${ext}`,
+      filters: [{ name: label, extensions: [ext] }],
+    });
+    if (!path) return;
+    await invoke('export_file', bytes, {
+      headers: { 'x-export-path': encodeURIComponent(path) },
+    });
+    toast('success', `Exported "${path.split(/[\\/]/).pop()}".`);
+  }
+
+  async function handleExportMidi() {
+    showExportPopover = false;
+    try {
+      const bytes = exportMidi();
+      if (bytes) await saveExport(bytes, 'mid', 'MIDI file');
+    } catch (err) {
+      console.error('[ControlBar] MIDI export failed:', err);
+      toast('error', `MIDI export failed: ${err}`);
+    }
+  }
+
+  async function handleExportGp() {
+    showExportPopover = false;
+    try {
+      const bytes = exportGp();
+      if (bytes) await saveExport(bytes, 'gp', 'Guitar Pro file');
+    } catch (err) {
+      console.error('[ControlBar] GP export failed:', err);
+      toast('error', `Guitar Pro export failed: ${err}`);
+    }
+  }
+
+  async function handleExportWav() {
+    if (exportingWav) return;
+    showExportPopover = false;
+    // Pick the destination first so the (slow) offline render only runs when
+    // the user actually committed to a file.
+    try {
+      const path = await tauriSave({
+        defaultPath: `${suggestedStem()}.wav`,
+        filters: [{ name: 'WAV audio', extensions: ['wav'] }],
+      });
+      if (!path) return;
+      exportingWav = true;
+      toast('info', 'Rendering audio — this can take a moment…');
+      const bytes = await exportWav();
+      if (!bytes) return;
+      await invoke('export_file', bytes, {
+        headers: { 'x-export-path': encodeURIComponent(path) },
+      });
+      toast('success', `Exported "${path.split(/[\\/]/).pop()}".`);
+    } catch (err) {
+      console.error('[ControlBar] WAV export failed:', err);
+      toast('error', `Audio export failed: ${err}`);
+    } finally {
+      exportingWav = false;
+    }
+  }
+
+  function handlePrint() {
+    showExportPopover = false;
+    printScore();
   }
 
   // ── Speed trainer field handlers ──────────────────────────────────────────
@@ -141,6 +240,7 @@
   function toggleTempoPopover() {
     showMetronomePopover = false;
     showGotoPopover      = false;
+    showExportPopover    = false;
     showTempoPopover = !showTempoPopover;
     if (showTempoPopover) tempoPopoverStyle = anchoredStyle(bpmBadgeEl);
   }
@@ -525,6 +625,47 @@
         <path d="M9 21l-3-3 3-3"/>
       </svg>
     </button>
+
+    <!-- Export -->
+    <div class="popover-anchor" use:clickOutside={closeExportPopover} bind:this={exportAnchorEl}>
+      <button
+        class="icon-toggle"
+        class:active={showExportPopover}
+        on:click={toggleExportPopover}
+        disabled={!canPlay || exportingWav}
+        title="Export (MIDI, audio, Guitar Pro, print)"
+        aria-label="Export"
+        aria-expanded={showExportPopover}
+      >
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+             stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M12 15V3"/>
+          <path d="M7 8l5-5 5 5"/>
+          <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+        </svg>
+      </button>
+
+      {#if showExportPopover}
+        <div class="popover export-popover" style={exportPopoverStyle} role="menu" aria-label="Export options">
+          <button class="export-item" role="menuitem" on:click={handleExportMidi}>
+            <span class="export-name">MIDI</span>
+            <span class="export-ext">.mid</span>
+          </button>
+          <button class="export-item" role="menuitem" on:click={handleExportWav} disabled={exportingWav}>
+            <span class="export-name">{exportingWav ? 'Rendering audio…' : 'Audio'}</span>
+            <span class="export-ext">.wav</span>
+          </button>
+          <button class="export-item" role="menuitem" on:click={handleExportGp}>
+            <span class="export-name">Guitar Pro</span>
+            <span class="export-ext">.gp</span>
+          </button>
+          <div class="export-sep"></div>
+          <button class="export-item" role="menuitem" on:click={handlePrint}>
+            <span class="export-name">Print…</span>
+          </button>
+        </div>
+      {/if}
+    </div>
 
     <!-- Download to Library -->
     {#if $libraryStore.currentSongsterrSong}
@@ -1059,6 +1200,45 @@
     margin-top: 10px;
     font-size: 12px;
     color: var(--text-muted);
+  }
+
+  /* ── Export popover ─────────────────────────────────────────────────────── */
+  .export-popover {
+    width: 190px;
+    padding: 8px;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+  .export-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    padding: 8px 10px;
+    border-radius: var(--radius);
+    background: transparent;
+    border: none;
+    cursor: pointer;
+    text-align: left;
+    transition: background var(--transition);
+  }
+  .export-item:hover:not(:disabled) { background: var(--overlay-subtle); }
+  .export-item:disabled { opacity: 0.55; cursor: default; }
+  .export-name {
+    font-size: 12.5px;
+    font-weight: 600;
+    color: var(--text-primary);
+  }
+  .export-ext {
+    font-family: var(--font-mono);
+    font-size: 10.5px;
+    color: var(--text-muted);
+  }
+  .export-sep {
+    height: 1px;
+    margin: 4px 6px;
+    background: var(--border);
   }
 
   /* ── Speed trainer row ──────────────────────────────────────────────────── */

@@ -33,6 +33,7 @@ pub fn run() {
             commands::file_metadata,
             commands::rename_gp_file,
             commands::delete_gp_file,
+            commands::export_file,
             songsterr::songsterr_search,
             songsterr::songsterr_fetch_tab,
             songsterr::songsterr_check_restriction,

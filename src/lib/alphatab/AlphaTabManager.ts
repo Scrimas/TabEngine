@@ -1254,6 +1254,118 @@ export function loadFromBytes(bytes: Uint8Array, sourcePath: string | null = nul
   api.load(bytes, [0]);
 }
 
+// ── Export ────────────────────────────────────────────────────────────────────
+
+/** Generate a standard MIDI file (SMF1) for the loaded score. */
+export function exportMidi(): Uint8Array | null {
+  if (!api?.score) return null;
+  const midiFile = new alphaTab.midi.MidiFile();
+  // SMF1 mode for the widest DAW/player compatibility.
+  const handler = new alphaTab.midi.AlphaSynthMidiFileHandler(midiFile, true);
+  const generator = new alphaTab.midi.MidiFileGenerator(api.score, api.settings, handler);
+  generator.generate();
+  return midiFile.toBinary();
+}
+
+/** Serialize the loaded score as a Guitar Pro 7/8 (.gp) file. */
+export function exportGp(): Uint8Array | null {
+  if (!api?.score) return null;
+  return new alphaTab.exporter.Gp7Exporter().export(api.score, api.settings);
+}
+
+/**
+ * Render the loaded score offline to a 16-bit PCM stereo WAV file at 44.1 kHz.
+ * Uses the already-loaded soundfont; playback keeps working while rendering.
+ */
+export async function exportWav(
+  onProgress?: (fraction: number) => void,
+): Promise<Uint8Array | null> {
+  if (!api?.score) return null;
+
+  const SAMPLE_RATE = 44100;
+  const CHANNELS = 2; // alphaTab synthesizes interleaved stereo
+
+  const options = new alphaTab.synth.AudioExportOptions();
+  options.sampleRate = SAMPLE_RATE;
+  options.masterVolume = 1;
+  options.metronomeVolume = 0;
+
+  const exporter = await api.exportAudio(options);
+  const chunks: Float32Array[] = [];
+  let totalSamples = 0;
+  try {
+    for (;;) {
+      const chunk = await exporter.render(500);
+      if (!chunk) break;
+      chunks.push(chunk.samples);
+      totalSamples += chunk.samples.length;
+      if (onProgress && chunk.endTime > 0) {
+        onProgress(Math.min(1, chunk.currentTime / chunk.endTime));
+      }
+    }
+  } finally {
+    exporter.destroy();
+  }
+
+  // 44-byte RIFF/WAVE header + 16-bit little-endian samples.
+  const bytesPerSample = 2;
+  const dataSize = totalSamples * bytesPerSample;
+  const buffer = new ArrayBuffer(44 + dataSize);
+  const view = new DataView(buffer);
+  const writeAscii = (offset: number, text: string) => {
+    for (let i = 0; i < text.length; i++) view.setUint8(offset + i, text.charCodeAt(i));
+  };
+  writeAscii(0, 'RIFF');
+  view.setUint32(4, 36 + dataSize, true);
+  writeAscii(8, 'WAVE');
+  writeAscii(12, 'fmt ');
+  view.setUint32(16, 16, true);                                   // fmt chunk size
+  view.setUint16(20, 1, true);                                    // PCM
+  view.setUint16(22, CHANNELS, true);
+  view.setUint32(24, SAMPLE_RATE, true);
+  view.setUint32(28, SAMPLE_RATE * CHANNELS * bytesPerSample, true); // byte rate
+  view.setUint16(32, CHANNELS * bytesPerSample, true);            // block align
+  view.setUint16(34, 16, true);                                   // bits per sample
+  writeAscii(36, 'data');
+  view.setUint32(40, dataSize, true);
+
+  let offset = 44;
+  for (const samples of chunks) {
+    for (let i = 0; i < samples.length; i++) {
+      const s = Math.max(-1, Math.min(1, samples[i]));
+      view.setInt16(offset, s < 0 ? s * 0x8000 : s * 0x7fff, true);
+      offset += 2;
+    }
+  }
+  return new Uint8Array(buffer);
+}
+
+/**
+ * Best-effort print: temporarily disable lazy rendering so every system is in
+ * the DOM, print via the OS dialog, then restore the lazy setting.
+ */
+export function printScore(): void {
+  if (!api?.score) return;
+  if (!api.settings.core.enableLazyLoading) {
+    window.print();
+    return;
+  }
+  api.settings.core.enableLazyLoading = false;
+  api.updateSettings();
+  const handler = () => {
+    api!.renderFinished.off(handler);
+    // Give the DOM a moment to settle before opening the print dialog.
+    setTimeout(() => {
+      window.print();
+      api!.settings.core.enableLazyLoading = true;
+      api!.updateSettings();
+      api!.render();
+    }, 300);
+  };
+  api.renderFinished.on(handler);
+  api.render();
+}
+
 // ── Cleanup ───────────────────────────────────────────────────────────────────
 
 export function destroyAlphaTab(): void {

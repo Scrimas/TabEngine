@@ -400,3 +400,53 @@ fn scan_recursive(dir: &Path, out: &mut Vec<LibraryEntry>, depth: u32) -> std::i
     }
     Ok(())
 }
+
+// ── Export ────────────────────────────────────────────────────────────────────
+
+/// Extensions the export command is allowed to write. Everything else is
+/// rejected so this command can't be abused as an arbitrary file writer.
+const EXPORT_EXTENSIONS: &[&str] = &["mid", "wav", "gp"];
+
+/// Write exported bytes (MIDI/WAV/GP) to a destination the user picked in the
+/// native save dialog.
+///
+/// The payload arrives as a raw-bytes IPC body (WAV renders are tens of
+/// megabytes — JSON-array serialization would be prohibitively slow), so the
+/// destination path travels percent-encoded in a request header (headers must
+/// be ASCII).
+#[tauri::command]
+pub fn export_file(request: tauri::ipc::Request<'_>) -> Result<String, String> {
+    let encoded = request
+        .headers()
+        .get("x-export-path")
+        .ok_or("Missing x-export-path header.")?
+        .to_str()
+        .map_err(|_| "Invalid x-export-path header.".to_string())?;
+    let path_str = percent_encoding::percent_decode_str(encoded)
+        .decode_utf8()
+        .map_err(|_| "Export path is not valid UTF-8.".to_string())?
+        .to_string();
+
+    let path = PathBuf::from(&path_str);
+    let ext = path
+        .extension()
+        .and_then(|e| e.to_str())
+        .map(|e| e.to_ascii_lowercase())
+        .ok_or("Export path has no file extension.")?;
+    if !EXPORT_EXTENSIONS.contains(&ext.as_str()) {
+        return Err(format!(
+            "Refusing to write '.{}' — only .mid, .wav and .gp exports are allowed.",
+            ext
+        ));
+    }
+
+    let tauri::ipc::InvokeBody::Raw(bytes) = request.body() else {
+        return Err("Expected a raw-bytes body.".to_string());
+    };
+    if bytes.len() as u64 > 512 * 1024 * 1024 {
+        return Err("Export exceeds the 512 MB size limit.".to_string());
+    }
+
+    fs::write(&path, bytes).map_err(|e| format!("Could not write '{}': {}", path_str, e))?;
+    Ok(path_str)
+}
