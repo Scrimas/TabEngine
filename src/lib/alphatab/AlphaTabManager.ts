@@ -81,6 +81,9 @@ let loopEndBeat:   alphaTab.model.Beat | null = null;
 // when seeding a loop range with no prior selection (setVisibleTracks keeps
 // this in sync with whatever the UI currently shows).
 let visibleTrackIndices: number[] = [];
+// Set when setVisibleTracks cleared an active loop — the loop is re-seeded on
+// the current bar once the new track subset has rendered (postRenderFinished).
+let pendingLoopReseed = false;
 
 // ── Init ──────────────────────────────────────────────────────────────────────
 
@@ -265,6 +268,25 @@ export function initAlphaTab(container: HTMLElement): void {
     resetPlayer();
     updatePlayer({ tempo: score.tempo });
 
+    // Mutate the score BEFORE the scoreLoaded dispatch below — ScoreViewer
+    // reacts to it synchronously, and alphaTab's own first render follows
+    // right after this handler returns, so mutations after the dispatch
+    // would miss the first rendered frame.
+    hideRestGlyphsInEmptyBars(score);
+    dedupeSectionMarkerText(score);
+
+    // alphaTab never resets synth channel mute/solo when a new score loads
+    // (loadMidiForScore has no resetChannelStates call), but the track list
+    // below seeds every track unmuted/unsoloed — clear the synth explicitly
+    // so UI and audio agree. Mix volume needs no reset: alphaTab re-seeds it
+    // from playbackInfo.volume/16 on every readyForPlayback.
+    api!.changeTrackMute([...score.tracks], false);
+    api!.changeTrackSolo([...score.tracks], false);
+
+    // loadFromBytes passes [0] as the initial track subset, so track 0 is
+    // what alphaTab's first render shows — keep our bookkeeping in sync.
+    visibleTrackIndices = [0];
+
     const tracks: TrackState[] = score.tracks.map((track, i) => ({
       index:      i,
       name:       track.name      || `Track ${i + 1}`,
@@ -282,9 +304,6 @@ export function initAlphaTab(container: HTMLElement): void {
     }));
     setTracks(tracks);
     container.dispatchEvent(new CustomEvent('tabengine:scoreLoaded'));
-
-    hideRestGlyphsInEmptyBars(score);
-    dedupeSectionMarkerText(score);
   });
 
   // 6. Render finished — notify the ScoreViewer (flips the loading overlay off)
@@ -303,6 +322,16 @@ export function initAlphaTab(container: HTMLElement): void {
   //     previous track when switching between tracks with a different string
   //     count.
   api.postRenderFinished.on(() => {
+    // Loop re-seed deferred from setVisibleTracks: the new track subset's
+    // bounds only exist after this render, so seeding earlier would draw
+    // no handles (highlightPlaybackRange throws on missing bounds).
+    if (pendingLoopReseed) {
+      pendingLoopReseed = false;
+      if (get(playerStore).isLooping) {
+        const bar = defaultLoopBar();
+        if (bar) applyBarLoop(api!, bar);
+      }
+    }
     container.dispatchEvent(new CustomEvent('tabengine:postRenderFinished'));
   });
 
@@ -315,21 +344,16 @@ export function initAlphaTab(container: HTMLElement): void {
   });
 
   // 7. Song reached end naturally — reset synthesis so next play isn't distorted.
-  //    When isLooping is true alphaTab handles the restart itself; we only need
-  //    this cleanup when the song plays through to the end without looping.
+  //    When isLooping is true alphaTab handles the restart itself. A non-loop
+  //    playbackRange (drag-to-select) also fires this at the range's end —
+  //    stop there too, but do NOT dispatch playerFinished: that would trigger
+  //    playlist auto-advance because a two-bar selection finished mid-song.
   api.playerFinished.on(() => {
-    if (!api!.isLooping) {
-      api!.stop();
+    if (api!.isLooping) return;
+    api!.stop();
+    if (!api!.playbackRange) {
       container.dispatchEvent(new CustomEvent('tabengine:playerFinished'));
     }
-  });
-
-  // 8. Beat changed — push canvas coordinates to store for the playhead pick.
-  api.playedBeatChanged.on((beat) => {
-    const b = api!.boundsLookup?.findBeat(beat);
-    if (!b) return;
-    const bar = b.barBounds.masterBarBounds.realBounds;
-    updatePlayer({ beatCanvasX: b.onNotesX, beatCanvasY: bar.y, beatCanvasH: bar.h });
   });
 
   // 9. Playback range highlight changed — fires live during alphaTab's own
@@ -663,11 +687,16 @@ function applyHighlightPreservingPosition(api: alphaTab.AlphaTabApi): void {
  */
 function forceClearLoopSelection(): void {
   if (!api) return;
+  // applyPlaybackRangeFromHighlight unconditionally seeks to the selection's
+  // start beat — without the save/restore, turning the loop OFF mid-song
+  // yanked the playhead back to the old loop's start.
+  const tick = api.tickPosition;
   if (loopStartBeat) {
     api.highlightPlaybackRange(loopStartBeat, loopStartBeat);
     api.applyPlaybackRangeFromHighlight();
   }
   api.playbackRange = null;
+  api.tickPosition = tick;
   loopStartBeat = null;
   loopEndBeat   = null;
 }
@@ -678,7 +707,7 @@ function forceClearLoopSelection(): void {
 function defaultLoopBar(): alphaTab.model.Bar | null {
   if (!api?.score) return null;
   const track = api.score.tracks[visibleTrackIndices[0] ?? 0];
-  return track?.staves[0]?.bars[currentBarIndex()] ?? null;
+  return track?.staves[0]?.bars[currentModelBarIndex()] ?? null;
 }
 
 /**
@@ -830,8 +859,11 @@ export function setVisibleTracks(trackIndices: number[]): void {
   if (!api?.score) return;
   // Clear the loop selection before re-rendering a different track subset —
   // the loop's beat may belong to a track about to be excluded, which would
-  // crash the next render pass (see forceClearLoopSelection).
+  // crash the next render pass (see forceClearLoopSelection). If a loop was
+  // active, re-seed it on the current bar once the new subset has rendered
+  // (postRenderFinished) so the loop button's state stays truthful.
   if (loopStartBeat) forceClearLoopSelection();
+  if (get(playerStore).isLooping) pendingLoopReseed = true;
   visibleTrackIndices = trackIndices.length === 0
     ? api.score.tracks.map((_, i) => i)
     : trackIndices;
@@ -901,8 +933,13 @@ function dedupeSectionMarkerText(score: alphaTab.model.Score): void {
   }
 }
 
-/** Returns the index of the bar the current playback position is in. */
-function currentBarIndex(): number {
+// api.tickCache.masterBars is the PLAYED sequence — with repeat signs, the
+// same model bar appears once per play-through, so indices into that list are
+// NOT model bar indices (score.masterBars / staff.bars / boundsLookup all use
+// model indices). Every consumer must be explicit about which space it's in.
+
+/** Index into the played sequence (tickCache.masterBars) at the current tick. */
+function currentPlayedBarIndex(): number {
   const tick  = get(playerStore).currentTick;
   const bars  = api!.tickCache?.masterBars ?? [];
   let idx = 0;
@@ -913,10 +950,25 @@ function currentBarIndex(): number {
   return idx;
 }
 
-/** Returns the bar index that starts each rendered row, in order. */
+/** MODEL index (score.masterBars / staff.bars) of the currently played bar. */
+function currentModelBarIndex(): number {
+  const bars = api!.tickCache?.masterBars ?? [];
+  return bars[currentPlayedBarIndex()]?.masterBar?.index ?? 0;
+}
+
+/** Tick of the FIRST play-through of the given model bar. */
+function firstTickOfModelBar(modelIndex: number): number {
+  const bars = api!.tickCache?.masterBars ?? [];
+  for (const b of bars) {
+    if (b.masterBar.index === modelIndex) return b.start;
+  }
+  return 0;
+}
+
+/** Returns the MODEL bar index that starts each rendered row, in order. */
 function rowStartIndices(): number[] {
   const lookup = api!.boundsLookup;
-  const total  = api!.tickCache?.masterBars.length ?? 0;
+  const total  = api!.score?.masterBars.length ?? 0;
   if (!lookup) return [];
   const starts: number[] = [];
   for (let i = 0; i < total; i++) {
@@ -949,27 +1001,27 @@ function scrollBarIntoView(barIndex: number): void {
 export function seekToPrevBar(): void {
   if (!api) return;
   const currentTick = get(playerStore).currentTick;
-  const barStarts   = api.tickCache?.masterBars.map(b => b.start) ?? [];
-  for (let i = barStarts.length - 1; i >= 0; i--) {
-    if (barStarts[i] < currentTick - 200) {
-      api.tickPosition = barStarts[i];
-      scrollBarIntoView(i);
+  const bars        = api.tickCache?.masterBars ?? [];
+  for (let i = bars.length - 1; i >= 0; i--) {
+    if (bars[i].start < currentTick - 200) {
+      api.tickPosition = bars[i].start;
+      scrollBarIntoView(bars[i].masterBar.index);
       return;
     }
   }
   api.tickPosition = 0;
-  scrollBarIntoView(0);
+  scrollBarIntoView(bars[0]?.masterBar.index ?? 0);
 }
 
 /** Seek to the start of the next bar. */
 export function seekToNextBar(): void {
   if (!api) return;
   const currentTick = get(playerStore).currentTick;
-  const barStarts   = api.tickCache?.masterBars.map(b => b.start) ?? [];
-  for (let i = 0; i < barStarts.length; i++) {
-    if (barStarts[i] > currentTick + 100) {
-      api.tickPosition = barStarts[i];
-      scrollBarIntoView(i);
+  const bars        = api.tickCache?.masterBars ?? [];
+  for (let i = 0; i < bars.length; i++) {
+    if (bars[i].start > currentTick + 100) {
+      api.tickPosition = bars[i].start;
+      scrollBarIntoView(bars[i].masterBar.index);
       return;
     }
   }
@@ -1002,7 +1054,7 @@ export function seekToPrevRow(): void {
   if (!api?.tickCache?.masterBars.length || !api.boundsLookup) return;
   const rows   = rowStartIndices();
   if (rows.length === 0) return;
-  const barIdx = currentBarIndex();
+  const barIdx = currentModelBarIndex();
   const currentBounds = api.boundsLookup.findMasterBarByIndex(barIdx);
   if (!currentBounds) return;
   let lineIdx = 0;
@@ -1015,7 +1067,7 @@ export function seekToPrevRow(): void {
   const rowEnd   = rows[lineIdx] - 1;
   const x        = currentBounds.visualBounds.x + currentBounds.visualBounds.w / 2;
   const target   = closestBarInRow(x, rowStart, rowEnd);
-  api.tickPosition = api.tickCache.masterBars[target]?.start ?? 0;
+  api.tickPosition = firstTickOfModelBar(target);
   scrollBarIntoView(target);
 }
 
@@ -1024,7 +1076,7 @@ export function seekToNextRow(): void {
   if (!api?.tickCache?.masterBars.length || !api.boundsLookup) return;
   const rows   = rowStartIndices();
   if (rows.length === 0) return;
-  const barIdx = currentBarIndex();
+  const barIdx = currentModelBarIndex();
   const currentBounds = api.boundsLookup.findMasterBarByIndex(barIdx);
   if (!currentBounds) return;
   let lineIdx = 0;
@@ -1034,10 +1086,10 @@ export function seekToNextRow(): void {
   }
   if (lineIdx === rows.length - 1) return;
   const rowStart = rows[lineIdx + 1];
-  const rowEnd   = (lineIdx + 2 < rows.length ? rows[lineIdx + 2] : api.tickCache.masterBars.length) - 1;
+  const rowEnd   = (lineIdx + 2 < rows.length ? rows[lineIdx + 2] : (api.score?.masterBars.length ?? 0)) - 1;
   const x        = currentBounds.visualBounds.x + currentBounds.visualBounds.w / 2;
   const target   = closestBarInRow(x, rowStart, rowEnd);
-  api.tickPosition = api.tickCache.masterBars[target]?.start ?? 0;
+  api.tickPosition = firstTickOfModelBar(target);
   scrollBarIntoView(target);
 }
 
@@ -1066,7 +1118,11 @@ export function loadFromBytes(bytes: Uint8Array): void {
     console.error('[AlphaTabManager] API not initialised before loadFromBytes.');
     return;
   }
-  api.load(bytes);
+  // Load with track 0 as the initial subset: the app always starts in
+  // single-track view, and passing it here means alphaTab's first render is
+  // already the right one — ScoreViewer no longer triggers a second full
+  // render just to switch from "all tracks" to track 0.
+  api.load(bytes, [0]);
 }
 
 // ── Cleanup ───────────────────────────────────────────────────────────────────

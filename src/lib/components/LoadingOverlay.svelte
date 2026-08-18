@@ -6,11 +6,14 @@
   $: loaded   = $playerStore.sfLoaded;
 
   export let scoreReady = false;
+  export let loadFailed = false;
 
   // Only block the UI once a score has actually been requested — otherwise this
   // would show "Loading SoundFont…" indefinitely on a fresh launch with nothing
   // open, since the soundfont loads in the background regardless of user action.
-  $: show = $tracksStore.length > 0 && (!$playerStore.isReady || !scoreReady);
+  // A load failure (score OR soundfont) dismisses the overlay too: isReady may
+  // never arrive in that case, and the error is surfaced as a toast instead.
+  $: show = !loadFailed && $tracksStore.length > 0 && (!$playerStore.isReady || !scoreReady);
 </script>
 
 {#if show}

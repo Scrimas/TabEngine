@@ -4,11 +4,12 @@
   import { setMasterVolume } from '$lib/alphatab/AlphaTabManager';
   import TrackChannel from './TrackChannel.svelte';
 
-  let masterVolume = 100;
+  // Single source of truth is the player store (setMasterVolume writes it) —
+  // a local copy would silently drift from the actual synth volume.
+  $: masterVolume = $playerStore.masterVolume;
 
   function onMasterVolume(e: Event) {
-    masterVolume = Number((e.target as HTMLInputElement).value);
-    setMasterVolume(masterVolume);
+    setMasterVolume(Number((e.target as HTMLInputElement).value));
   }
 
   // 20 EQ bars with staggered animation delays and random heights

@@ -22,10 +22,6 @@ export interface PlayerState {
   metronomeEnabled: boolean;
   masterVolume:    number;    // 0–100
   countInEnabled:  boolean;
-
-  beatCanvasX: number;
-  beatCanvasY: number;
-  beatCanvasH: number;
 }
 
 /** Canvas-space bounds of the two beats bounding the active loop selection,
@@ -53,9 +49,6 @@ export const DEFAULT_PLAYER_STATE: PlayerState = {
   metronomeEnabled: false,
   masterVolume:    100,
   countInEnabled:  false,
-  beatCanvasX: 0,
-  beatCanvasY: 0,
-  beatCanvasH: 0,
 };
 
 // ── Tracks / Mixer ────────────────────────────────────────────────────────────

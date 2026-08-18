@@ -28,6 +28,7 @@
   let atMainEl:   HTMLElement | null = null; // .at-main (alphaTab's render root)
 
   let scoreReady         = false;
+  let loadFailed         = false;
   let isDragOver         = false;
   let selectedTrackIndex: number | null = null;
 
@@ -51,18 +52,6 @@
     });
   }
 
-  // Playhead pick position (viewport-relative)
-  let pickPos: { x: number; y: number; h: number } | null = null;
-  $: {
-    const s = $playerStore;
-    if (s.isPlaying && s.beatCanvasX && atMainEl) {
-      const vp = canvasToViewport(s.beatCanvasX, s.beatCanvasY, viewportEl, atMainEl);
-      pickPos = { x: vp.x, y: vp.y, h: s.beatCanvasH };
-    } else {
-      pickPos = null;
-    }
-  }
-
   let resizeObserver: ResizeObserver | null = null;
   let resizeTimer: any = null;
 
@@ -77,10 +66,11 @@
     initAlphaTab(containerEl);
     atMainEl = containerEl.querySelector<HTMLElement>('.at-main');
 
-    // Auto-select the first real track (rather than leaving "All" highlighted)
-    // since a fresh load already renders a single track by default.
+    // A fresh load already renders track 0 (loadFromBytes passes [0] as the
+    // initial subset), so only sync the highlighted tab — calling
+    // selectTrack(0) here would trigger a redundant second full render.
     containerEl.addEventListener('tabengine:scoreLoaded', () => {
-      if (get(tracksStore).length > 0) selectTrack(0);
+      if (get(tracksStore).length > 0) selectedTrackIndex = 0;
     });
 
     containerEl.addEventListener('tabengine:renderFinished', () => {
@@ -121,6 +111,10 @@
 
     containerEl.addEventListener('tabengine:scoreLoadFailed', () => {
       scoreReady = true; // dismiss the overlay so the UI isn't stuck
+      // Also covers a SoundFont load failure: isReady never becomes true in
+      // that case, so without this flag the loading overlay would block the
+      // app forever (the error itself is toasted by AlphaTabManager).
+      loadFailed = true;
     });
 
     // Playlist auto-advance: song played through to the end naturally (not
@@ -179,6 +173,7 @@
 
   export async function loadFile(path: string): Promise<void> {
     scoreReady = false;
+    loadFailed = false;
     selectedTrackIndex = null;
     try {
       // read_gp_file returns a raw-bytes IPC response (ArrayBuffer), not JSON
@@ -247,7 +242,7 @@
   </div>
 
   <!-- Loading overlay -->
-  <LoadingOverlay {scoreReady} />
+  <LoadingOverlay {scoreReady} {loadFailed} />
 
   <!-- Drop hint -->
   {#if !$playerStore.sfLoaded || (!scoreReady && $playerStore.totalTicks === 0)}
