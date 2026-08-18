@@ -35,6 +35,7 @@
 
 // Import alphaTab as a namespace so we can access all sub-types.
 import * as alphaTab from '@coderline/alphatab';
+import { tick } from 'svelte';
 import { updatePlayer, resetPlayer, speedTrainerStore } from '$lib/stores/player';
 import { toast } from '$lib/stores/notifications';
 import { setTracks } from '$lib/stores/tracks';
@@ -575,15 +576,23 @@ export function setStaveProfile(profile: 'tab' | 'scoretab'): void {
 }
 
 /** Toggle between page (vertical rows) and horizontal (single-strip) layout. */
-export function setLayoutMode(mode: 'page' | 'horizontal'): void {
+export async function setLayoutMode(mode: 'page' | 'horizontal'): Promise<void> {
   if (!api) return;
   api.settings.display.layoutMode = mode === 'horizontal'
     ? alphaTab.LayoutMode.Horizontal
     : alphaTab.LayoutMode.Page;
   api.updateSettings();
+  // Persist BEFORE rendering and wait one Svelte flush: the .score-card CSS
+  // class (page column vs. max-content strip) is bound to this setting, and
+  // alphaTab measures its container width when render() runs. Rendering
+  // before the class applied made horizontal → page lay the "page" out at
+  // the old strip's enormous width (one endless row); the corrective
+  // resize-render then reflowed everything after the scroll restore had
+  // already run against the dead bounds.
+  persistSettings({ layoutMode: mode });
+  await tick();
   api.render();
   scrollToCurrentBarAfterRender();
-  persistSettings({ layoutMode: mode });
 }
 
 /** Master-bar index containing the current playback tick (0 if unknown). */
