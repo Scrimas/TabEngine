@@ -216,7 +216,7 @@
     color: var(--accent);
   }
   .tb-btn.close:hover {
-    background: rgba(176, 58, 46, 0.12);
+    background: var(--red-dim);
     color: var(--red);
   }
   .tb-btn.theme-btn:hover {

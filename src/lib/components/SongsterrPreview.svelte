@@ -428,13 +428,13 @@
   .restriction-box.warning {
     background: var(--red-dim);
     color: var(--red);
-    border: 1px solid rgba(176, 58, 46, 0.12);
+    border: 1px solid color-mix(in srgb, var(--red) 12%, transparent);
   }
 
   .restriction-box.success {
     background: var(--green-dim);
     color: var(--green);
-    border: 1px solid rgba(26, 122, 74, 0.12);
+    border: 1px solid color-mix(in srgb, var(--green) 12%, transparent);
   }
 
   .lock-icon {
@@ -492,6 +492,6 @@
     background: var(--red-dim);
     color: var(--red);
     font-size: 12px;
-    border-top: 1px solid rgba(176, 58, 46, 0.2);
+    border-top: 1px solid color-mix(in srgb, var(--red) 20%, transparent);
   }
 </style>

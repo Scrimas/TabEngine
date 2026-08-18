@@ -181,7 +181,7 @@
     background: linear-gradient(90deg, var(--accent), var(--accent-bright));
     border-radius: 3px;
     pointer-events: none;
-    box-shadow: 0 0 8px rgba(192,120,56,0.30);
+    box-shadow: 0 0 8px rgba(217, 138, 82,0.30);
   }
 
   .master-fader-wrap input[type=range] {
@@ -191,7 +191,7 @@
   }
 
   .master-fader-wrap input[type=range]::-webkit-slider-runnable-track {
-    background: rgba(43,40,35,0.12);
+    background: var(--slider-track);
   }
 
   /* ── EQ bars ────────────────────────────────────────────────────────────── */

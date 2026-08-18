@@ -45,7 +45,8 @@
 <div class="channel" class:dimmed class:muted={track.muted} role="group" aria-label={track.name}>
   <!-- Colour badge + name -->
   <div class="header">
-    <div class="color-badge" style="background: {track.color};" aria-hidden="true"></div>
+    <!-- color set too so the currentColor glow matches the track hue -->
+    <div class="color-badge" style="background: {track.color}; color: {track.color};" aria-hidden="true"></div>
     <span class="name" title={track.name}>{track.name}</span>
   </div>
 
@@ -201,7 +202,7 @@
     letter-spacing: 0.04em;
     cursor: pointer;
     border: 1px solid var(--border);
-    background: rgba(43,40,35,0.05);
+    background: var(--overlay-subtle);
     color: var(--text-secondary);
     transition: background var(--transition), color var(--transition),
                 border-color var(--transition), box-shadow var(--transition),
@@ -214,15 +215,15 @@
   .ms-btn:active { transform: scale(0.92); }
   .ms-btn.mute.active {
     background: var(--red-dim);
-    border-color: rgba(248,113,113,0.45);
+    border-color: color-mix(in srgb, var(--red) 45%, transparent);
     color: var(--red);
-    box-shadow: 0 0 10px rgba(248,113,113,0.22);
+    box-shadow: 0 0 10px color-mix(in srgb, var(--red) 22%, transparent);
   }
   .ms-btn.solo.active {
     background: var(--amber-dim);
-    border-color: rgba(251,191,36,0.45);
+    border-color: color-mix(in srgb, var(--amber) 45%, transparent);
     color: var(--amber);
-    box-shadow: 0 0 10px rgba(251,191,36,0.22);
+    box-shadow: 0 0 10px color-mix(in srgb, var(--amber) 22%, transparent);
   }
   .short-name {
     font-size: 0.65rem;

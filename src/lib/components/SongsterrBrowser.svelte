@@ -531,7 +531,14 @@
     border-radius: var(--radius);
     background: linear-gradient(110deg, var(--bg-hover) 30%, var(--bg-elevated) 50%, var(--bg-hover) 70%);
     background-size: 300% 100%;
-    animation: shimmer 1.4s ease infinite;
+    /* Local keyframes: the global `shimmer` animates translateX and made
+       these full-width cards physically slide across the pane. */
+    animation: skeleton-shimmer 1.4s ease infinite;
+  }
+
+  @keyframes skeleton-shimmer {
+    from { background-position: 100% 0; }
+    to   { background-position: -100% 0; }
   }
 
   .scroll-sentinel {

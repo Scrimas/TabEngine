@@ -134,10 +134,10 @@
     transition: background var(--transition), border-color var(--transition);
     touch-action: none;
   }
-  .song-row:hover { background: rgba(43,40,35,0.05); }
+  .song-row:hover { background: var(--overlay-subtle); }
   .song-row.current {
     background: var(--accent-dim);
-    border-color: rgba(192, 120, 56, 0.32);
+    border-color: rgba(217, 138, 82, 0.32);
   }
   .song-row.dragging {
     z-index: 5;
@@ -199,5 +199,5 @@
     cursor: pointer;
     transition: background var(--transition), color var(--transition);
   }
-  .remove-btn:hover { background: rgba(176,58,46,0.10); color: var(--red); }
+  .remove-btn:hover { background: var(--red-dim); color: var(--red); }
 </style>

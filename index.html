@@ -7,6 +7,19 @@
     <title>TabEngine — Guitar Tablature Player</title>
     <!-- All fonts are self-hosted via @fontsource (imported in src/main.ts) -->
     <meta name="description" content="TabEngine: a high-fidelity, offline-first guitar tablature player. Open GP3/4/5/GPX files with advanced playback, real-time mixing, loop selection, and tempo shifting." />
+    <!-- Pre-paint background + theme class: app.css only loads with the JS
+         bundle, so without this every cold start flashes white (jarring in
+         dark mode). Must stay in sync with --bg-base in src/app.css. -->
+    <style>
+      html { background: #f6f1e7; }
+      html.dark-theme { background: #12110e; }
+    </style>
+    <script>
+      try {
+        var s = JSON.parse(localStorage.getItem('tabengine:settings') || '{}');
+        if (s.theme === 'dark') document.documentElement.classList.add('dark-theme');
+      } catch (e) { /* default parchment */ }
+    </script>
   </head>
   <body>
     <div id="app"></div>

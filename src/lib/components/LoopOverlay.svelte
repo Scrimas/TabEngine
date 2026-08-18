@@ -164,7 +164,7 @@
 
   .loop-handle-shape {
     fill: var(--accent);
-    filter: drop-shadow(0 2px 4px rgba(192,120,56,0.40));
+    filter: drop-shadow(0 2px 4px rgba(217, 138, 82,0.40));
   }
   .loop-handle:hover .loop-handle-shape {
     fill: var(--accent-bright);

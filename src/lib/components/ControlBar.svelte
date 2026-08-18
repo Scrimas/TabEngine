@@ -432,7 +432,7 @@
     color: #fff;
     border: none;
     cursor: pointer;
-    box-shadow: 0 4px 16px rgba(192, 120, 56, 0.38);
+    box-shadow: 0 4px 16px rgba(217, 138, 82, 0.38);
     transition: filter var(--transition), transform 140ms var(--ease-spring),
                 box-shadow var(--transition);
     flex-shrink: 0;
@@ -474,7 +474,7 @@
     background: linear-gradient(90deg, var(--accent), var(--accent-bright));
     border-radius: 3px;
     pointer-events: none;
-    box-shadow: 0 0 8px rgba(192,120,56,0.38);
+    box-shadow: 0 0 8px rgba(217, 138, 82,0.38);
   }
   .scrubber-wrap input[type=range] {
     width: 100%;
@@ -482,7 +482,7 @@
     z-index: 1;
   }
   .scrubber-wrap input[type=range]::-webkit-slider-runnable-track {
-    background: rgba(43,40,35,0.12);
+    background: var(--slider-track);
   }
 
   /* ── Right controls ─────────────────────────────────────────────────────── */
@@ -563,7 +563,9 @@
     border-radius: var(--radius);
     box-shadow: var(--shadow);
     padding: 14px 16px;
-    z-index: 1000;
+    /* Below the modal backdrops (900+): a popover left open must not float
+       on top of the Songsterr/Playlists/Settings dialogs. */
+    z-index: 880;
   }
 
   /* Metronome volume popover */

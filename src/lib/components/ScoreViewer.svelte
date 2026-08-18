@@ -248,10 +248,12 @@
   {#if !$playerStore.sfLoaded || (!scoreReady && $playerStore.totalTicks === 0)}
     <div class="drop-hint" class:active={isDragOver} aria-hidden="true">
       <div class="drop-icon">
-        <svg width="52" height="52" viewBox="0 0 52 52" fill="none">
-          <rect width="52" height="52" rx="14" fill="rgba(43,40,35,0.06)" stroke="rgba(43,40,35,0.20)" stroke-width="1.5"/>
-          <path d="M26 16 L26 34 M18 26 L26 34 L34 26" stroke="#c07838" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-          <path d="M16 38 L36 38" stroke="#c07838" stroke-width="2" stroke-linecap="round" opacity="0.5"/>
+        <!-- currentColor + opacity instead of baked light-theme inks so the
+             icon stays visible on the dark theme -->
+        <svg width="52" height="52" viewBox="0 0 52 52" fill="none" style="color: var(--text-primary)">
+          <rect width="52" height="52" rx="14" fill="currentColor" fill-opacity="0.06" stroke="currentColor" stroke-opacity="0.20" stroke-width="1.5"/>
+          <path d="M26 16 L26 34 M18 26 L26 34 L34 26" stroke="var(--accent)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+          <path d="M16 38 L36 38" stroke="var(--accent)" stroke-width="2" stroke-linecap="round" opacity="0.5"/>
         </svg>
       </div>
       <p class="drop-title">Drop a Guitar Pro file here</p>
@@ -301,7 +303,7 @@
 
   .score-viewer.drag-over {
     box-shadow: inset 0 0 0 2px var(--accent);
-    background: rgba(192, 120, 56, 0.04);
+    background: rgba(217, 138, 82, 0.04);
   }
 
   /* ── Toolbar ─────────────────────────────────────────────────────────────── */
@@ -372,7 +374,7 @@
     max-width: 1160px;
     margin: 0 auto;
     background: var(--score-bg);
-    border: 1px solid rgba(43,40,35,0.10);
+    border: 1px solid var(--border);
     border-radius: 16px;
     padding: 10px;
     box-shadow: 0 14px 50px rgba(90,75,55,0.15);
@@ -422,7 +424,7 @@
        webview) rasterizes drop-shadow on a container from its sharp-cornered
        bounding box rather than the rounded SVG content, leaving a faint
        square ghost around the rounded card. box-shadow has no such issue. */
-    box-shadow: 0 0 16px rgba(192,120,56,0.35);
+    box-shadow: 0 0 16px rgba(217, 138, 82,0.35);
     animation: float-y 3.5s var(--ease-out) infinite;
   }
 
@@ -438,8 +440,8 @@
   .drop-sub kbd {
     display: inline-block;
     padding: 1px 6px;
-    background: rgba(43,40,35,0.07);
-    border: 1px solid rgba(43,40,35,0.15);
+    background: var(--bg-hover);
+    border: 1px solid var(--border-hover);
     border-radius: 4px;
     font-size: 0.78rem;
     font-family: inherit;
@@ -456,8 +458,8 @@
     padding: 3px 10px;
     border-radius: 99px;
     background: var(--accent-dim);
-    border: 1px solid rgba(192,120,56,0.24);
-    color: #8f541e;
+    border: 1px solid rgba(217, 138, 82, 0.24);
+    color: var(--accent);
     font-size: 0.75rem;
     font-weight: 500;
     letter-spacing: 0.02em;
@@ -465,8 +467,8 @@
 
   /* ── alphaTab internal overrides ─────────────────────────────────────────── */
   :global(.at-cursor-bar) {
-    background: RGB(217, 138, 82, 0.05) !important;
-    border: 0px solid rgba(192,120,56,0.08) !important;
+    background: rgba(217, 138, 82, 0.05) !important;
+    border: 0 solid rgba(217, 138, 82, 0.08) !important;
   }
   /* Songsterr-style playhead. Two hard constraints discovered by reading
      alphaTab's own source and by trial:

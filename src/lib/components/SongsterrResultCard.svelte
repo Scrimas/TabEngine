@@ -97,7 +97,7 @@
   .result-card.active {
     background: var(--accent-dim);
     border-color: var(--accent);
-    box-shadow: inset 0 0 0 1px rgba(192, 120, 56, 0.12);
+    box-shadow: inset 0 0 0 1px rgba(217, 138, 82, 0.12);
   }
 
   .card-main {

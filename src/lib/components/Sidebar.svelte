@@ -59,7 +59,7 @@
 
   const EXT_COLOR: Record<string, string> = {
     gp:  '#8b7cf6', gp3: '#fb7185', gp4: '#4ade80',
-    gp5: '#c07838', gpx: '#fbbf24',
+    gp5: '#D98A52', gpx: '#fbbf24',
   };
 
   function thumbColor(ext: string): string {
@@ -372,7 +372,7 @@
 
           <!-- Thumbnail -->
           <div class="thumb"
-               style="background: linear-gradient(140deg, {color}, color-mix(in srgb, {color} 38%, #e8e2d2));"
+               style="background: linear-gradient(140deg, {color}, color-mix(in srgb, {color} 38%, var(--thumb-mix)));"
                aria-hidden="true">
             <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="#fff"
                  stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" opacity="0.92">
@@ -592,12 +592,12 @@
   }
   .action-btn.primary {
     background: var(--accent-dim);
-    border-color: rgba(192, 120, 56, 0.32);
+    border-color: rgba(217, 138, 82, 0.32);
     color: var(--accent);
   }
   .action-btn.primary:hover {
-    background: rgba(192, 120, 56, 0.24);
-    border-color: rgba(192, 120, 56, 0.50);
+    background: rgba(217, 138, 82, 0.24);
+    border-color: rgba(217, 138, 82, 0.50);
   }
 
   .lib-header {
@@ -610,7 +610,7 @@
 
   .view-toggle {
     display: flex;
-    background: rgba(43,40,35,0.05);
+    background: var(--overlay-subtle);
     border-radius: 7px;
     padding: 2px;
     gap: 2px;
@@ -742,7 +742,7 @@
     -webkit-user-select: none;
   }
   .file-card:hover {
-    background: rgba(43,40,35,0.05);
+    background: var(--overlay-subtle);
   }
   .file-card.active {
     background: var(--bg-elevated);
@@ -886,16 +886,17 @@
   .ctx-backdrop {
     position: fixed;
     inset: 0;
-    z-index: 99;
+    z-index: 299;
   }
   .ctx-menu {
     position: fixed;
-    z-index: 100;
+    /* Above the panel resize handles (z 100), below modal backdrops (900) */
+    z-index: 300;
     min-width: 190px;
     background: var(--bg-elevated);
     border: 1px solid var(--border);
     border-radius: 10px;
-    box-shadow: 0 8px 24px rgba(0,0,0,0.16);
+    box-shadow: var(--shadow);
     padding: 5px;
     display: flex;
     flex-direction: column;
@@ -920,5 +921,5 @@
     background: var(--bg-hover);
   }
   .ctx-item.danger { color: var(--red); }
-  .ctx-item.danger:hover { background: rgba(176,58,46,0.10); }
+  .ctx-item.danger:hover { background: var(--red-dim); }
 </style>

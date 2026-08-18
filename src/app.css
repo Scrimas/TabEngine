@@ -53,7 +53,7 @@
   --shadow-sm: 0 1px 3px rgba(90, 75, 55, 0.18);
   --shadow:    0 6px 24px rgba(90, 75, 55, 0.22);
   --shadow-lg: 0 18px 48px rgba(90, 75, 55, 0.28);
-  --shadow-accent: 0 4px 18px rgba(192, 120, 56, 0.28);
+  --shadow-accent: 0 4px 18px rgba(217, 138, 82, 0.28);
 
   /* Easing */
   --ease-out:    cubic-bezier(0.22, 1, 0.36, 1);
@@ -69,6 +69,15 @@
   --bg-pane:         rgba(246, 241, 231, 0.4);
   --bg-overlay:      rgba(246, 241, 231, 0.85);
   --scrollbar-thumb: rgba(43, 40, 35, 0.14);
+
+  /* Subtle ink overlays — MUST flip with the theme: a dark ink tint is
+     invisible on dark surfaces (hover feedback disappeared in dark mode
+     wherever these were hardcoded). */
+  --overlay-subtle:  rgba(43, 40, 35, 0.05);
+  --slider-track:    rgba(43, 40, 35, 0.12);
+  --slider-thumb:    #ffffff;
+  /* Mix target for the sidebar file-thumbnail gradients */
+  --thumb-mix:       #e8e2d2;
 
   /* Layout */
   --sidebar-width:      288px;
@@ -142,6 +151,12 @@ html.dark-theme {
   --bg-pane:         rgba(18, 17, 14, 0.4);
   --bg-overlay:      rgba(18, 17, 14, 0.85);
   --scrollbar-thumb: rgba(236, 230, 216, 0.14);
+
+  /* Subtle cream overlays (see the light-theme comment) */
+  --overlay-subtle:  rgba(236, 230, 216, 0.06);
+  --slider-track:    rgba(236, 230, 216, 0.12);
+  --slider-thumb:    #ece6d8;
+  --thumb-mix:       #3a362e;
 }
 
 /* ── Reset ───────────────────────────────────────────────────────────────── */
@@ -167,7 +182,7 @@ html, body, #app {
   background:    var(--scrollbar-thumb);
   border-radius: 3px;
 }
-::-webkit-scrollbar-thumb:hover { background: rgba(192, 120, 56, 0.45); }
+::-webkit-scrollbar-thumb:hover { background: rgba(217, 138, 82, 0.45); }
 
 /* ── Selection ───────────────────────────────────────────────────────────── */
 ::selection {
@@ -212,7 +227,7 @@ input[type='range']::-webkit-slider-thumb {
   width:       14px;
   height:      14px;
   border-radius: 50%;
-  background:  #fff;
+  background:  var(--slider-thumb);
   margin-top:  -5px;
   box-shadow:  0 1px 4px rgba(43, 40, 35, 0.30), 0 0 8px var(--accent-glow);
   transition:  transform 120ms var(--ease-spring), box-shadow var(--transition);
@@ -319,8 +334,8 @@ input[type='range']:disabled {
 }
 
 @keyframes pulse-glow {
-  0%, 100% { box-shadow: 0 4px 16px rgba(192, 120, 56, 0.30); }
-  50%      { box-shadow: 0 4px 28px rgba(192, 120, 56, 0.55); }
+  0%, 100% { box-shadow: 0 4px 16px rgba(217, 138, 82, 0.30); }
+  50%      { box-shadow: 0 4px 28px rgba(217, 138, 82, 0.55); }
 }
 
 @keyframes float-y {

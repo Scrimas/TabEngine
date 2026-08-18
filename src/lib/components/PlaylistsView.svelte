@@ -287,12 +287,12 @@
     align-items: center;
     justify-content: center;
     background: var(--accent-dim);
-    border: 1px solid rgba(192, 120, 56, 0.32);
+    border: 1px solid rgba(217, 138, 82, 0.32);
     color: var(--accent);
     cursor: pointer;
   }
   .new-playlist-btn:hover {
-    background: rgba(192, 120, 56, 0.24);
+    background: rgba(217, 138, 82, 0.24);
   }
 
   .playlist-list {
@@ -324,7 +324,7 @@
     border: 1px solid transparent;
     transition: background var(--transition), border-color var(--transition);
   }
-  .playlist-row:hover { background: rgba(43,40,35,0.05); }
+  .playlist-row:hover { background: var(--overlay-subtle); }
   .playlist-row.active {
     background: var(--bg-elevated);
     border-color: var(--border-hover);
@@ -373,7 +373,7 @@
     transition: background var(--transition), color var(--transition);
   }
   .row-icon-btn:hover { background: var(--bg-hover); color: var(--accent); }
-  .row-icon-btn.danger:hover { background: rgba(176,58,46,0.10); color: var(--red); }
+  .row-icon-btn.danger:hover { background: var(--red-dim); color: var(--red); }
 
   /* ── Right pane: songs ──────────────────────────────────────────────────── */
   .songs-pane {
@@ -429,7 +429,7 @@
     border-radius: var(--radius-sm);
     background: var(--accent);
     border: none;
-    color: var(--bg-base);
+    color: #fff;
     font-size: 12.5px;
     font-weight: 700;
     cursor: pointer;

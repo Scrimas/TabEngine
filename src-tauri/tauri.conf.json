@@ -24,7 +24,8 @@
         "center": true,
         "resizable": true,
         "decorations": false,
-        "shadow": true
+        "shadow": true,
+        "backgroundColor": "#f6f1e7"
       }
     ],
 
