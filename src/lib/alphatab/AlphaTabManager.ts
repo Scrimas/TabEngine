@@ -582,7 +582,36 @@ export function setLayoutMode(mode: 'page' | 'horizontal'): void {
     : alphaTab.LayoutMode.Page;
   api.updateSettings();
   api.render();
+  scrollToCurrentBarAfterRender();
   persistSettings({ layoutMode: mode });
+}
+
+/** Master-bar index containing the current playback tick (0 if unknown). */
+function currentMasterBarIndex(): number {
+  const tick = get(playerStore).currentTick;
+  const bars = api?.tickCache?.masterBars ?? [];
+  for (let i = bars.length - 1; i >= 0; i--) {
+    if (bars[i].start <= tick) return bars[i].masterBar.index;
+  }
+  return 0;
+}
+
+/**
+ * Switching page ↔ horizontal invalidates every on-screen coordinate, but the
+ * viewport keeps its old scroll offsets — the music can end up entirely
+ * off-screen (e.g. a page-mode scrollTop maps to nothing on the short
+ * horizontal strip, and coming back lands at the top of the page regardless
+ * of where the cursor is). Once the new bounds exist, bring the current bar
+ * back into view.
+ */
+function scrollToCurrentBarAfterRender(): void {
+  if (!api?.score) return;
+  const target  = currentMasterBarIndex();
+  const handler = () => {
+    api!.postRenderFinished.off(handler);
+    scrollBarIntoView(target);
+  };
+  api.postRenderFinished.on(handler);
 }
 
 export function setMasterVolume(pct: number): void {
@@ -1115,8 +1144,8 @@ function rowStartIndices(): number[] {
 
 /**
  * Scrolls the given bar's rendered row into view, replicating the exact
- * formula alphaTab's own VerticalContinuousScrollHandler uses during
- * playback (bar's realBounds.y + the configured scrollOffsetY). Keyboard
+ * formula alphaTab's own scroll handlers use during playback (the bar's
+ * realBounds plus the configured scroll offset, on the layout axis). Keyboard
  * seeks jump the tick position directly without playing, so alphaTab's
  * built-in auto-scroll never kicks in (it only scrolls in response to
  * playback advancing) — without this, the cursor can land off-screen with
@@ -1129,8 +1158,15 @@ function scrollBarIntoView(barIndex: number): void {
   const ui     = api.uiFacade;
   const scroll = ui.getScrollContainer();
   const elementOffset = ui.getOffset(scroll, api.container);
-  const y = bounds.realBounds.y + api.settings.player.scrollOffsetY;
-  ui.scrollToY(scroll, elementOffset.y + y, api.settings.player.scrollSpeed);
+  if (api.settings.display.layoutMode === alphaTab.LayoutMode.Horizontal) {
+    // Horizontal strip: the playhead moves along X (HorizontalScreenLayout's
+    // own scroll handler formula).
+    const x = bounds.realBounds.x + api.settings.player.scrollOffsetX;
+    ui.scrollToX(scroll, elementOffset.x + x, api.settings.player.scrollSpeed);
+  } else {
+    const y = bounds.realBounds.y + api.settings.player.scrollOffsetY;
+    ui.scrollToY(scroll, elementOffset.y + y, api.settings.player.scrollSpeed);
+  }
 }
 
 /** Seek to the start of the previous bar (with a small hysteresis window). */
