@@ -184,7 +184,7 @@
             <div class="settings-row">
               <div class="setting-label">
                 <span class="title">Playback controls</span>
-                <span class="desc">Tempo, metronome, count-in, zoom and the speed trainer live in the control bar; layout and notation toggles in the titlebar. Everything persists automatically.</span>
+                <span class="desc">Tempo, metronome, count-in, zoom and the speed trainer live in the control bar; the standard-notation toggle in the titlebar. Everything persists automatically.</span>
               </div>
             </div>
 

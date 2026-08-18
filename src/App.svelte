@@ -15,7 +15,7 @@
   import {
     playPause, stop, seekToPrevBar, seekToNextBar, seekToPrevRow, seekToNextRow,
     setThemeSettings, setMetronomeVolumeLimit,
-    setStaveProfile, setLayoutMode, setLoopBoundAtCurrentBar,
+    setStaveProfile, setLoopBoundAtCurrentBar,
   } from '$lib/alphatab/AlphaTabManager';
   import { anyOverlayOpen } from '$lib/stores/overlays';
   import { getCurrentWindow } from '@tauri-apps/api/window';
@@ -124,10 +124,6 @@
 
   function toggleNotation() {
     setStaveProfile($settingsStore.staveProfile === 'scoretab' ? 'tab' : 'scoretab');
-  }
-
-  function toggleLayout() {
-    setLayoutMode($settingsStore.layoutMode === 'horizontal' ? 'page' : 'horizontal');
   }
 
   async function toggleFullscreen() {
@@ -317,13 +313,11 @@
     {mixerOpen}
     theme={$settingsStore.theme}
     staveProfile={$settingsStore.staveProfile}
-    layoutMode={$settingsStore.layoutMode}
     on:toggle-settings={() => settingsOpen = !settingsOpen}
     on:toggle-sidebar={toggleSidebar}
     on:toggle-mixer={toggleMixer}
     on:toggle-theme={toggleTheme}
     on:toggle-notation={toggleNotation}
-    on:toggle-layout={toggleLayout}
   />
   <Sidebar
     on:load={handleSidebarLoad}

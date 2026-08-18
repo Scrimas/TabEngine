@@ -7,7 +7,6 @@
   export let mixerOpen   = true;
   export let theme: 'parchment' | 'dark' = 'parchment';
   export let staveProfile: 'tab' | 'scoretab' = 'tab';
-  export let layoutMode: 'page' | 'horizontal' = 'page';
 
   const win = getCurrentWindow();
   const dispatch = createEventDispatcher();
@@ -101,25 +100,6 @@
         <path d="M9 18V5l12-2v13"/>
         <circle cx="6" cy="18" r="3"/>
         <circle cx="18" cy="16" r="3"/>
-      </svg>
-    </button>
-
-    <!-- Layout toggle (page rows / horizontal strip) -->
-    <button
-      class="tb-btn"
-      class:active={layoutMode === 'horizontal'}
-      on:click={() => dispatch('toggle-layout')}
-      title={layoutMode === 'horizontal'
-        ? 'Horizontal strip layout — click for page layout'
-        : 'Page layout — click for horizontal strip'}
-      aria-label="Toggle horizontal layout"
-      aria-pressed={layoutMode === 'horizontal'}
-    >
-      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-           stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-        <rect x="3" y="8" width="18" height="8" rx="2"/>
-        <path d="M7 12h9"/>
-        <path d="M14 9.5L16.5 12L14 14.5"/>
       </svg>
     </button>
   </div>

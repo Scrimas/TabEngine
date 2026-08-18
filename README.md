@@ -12,7 +12,7 @@ TabEngine is free, and it's staying that way — no paywalled updates, no premiu
 
 ## What it does
 
-- Opens GP3 / GP4 / GP5 / GPX files and renders synced tablature, powered by [alphaTab](https://www.alphatab.net/) — with a one-click toggle to show standard notation above the tab, and page or horizontal-strip layouts
+- Opens GP3 / GP4 / GP5 / GPX files and renders synced tablature, powered by [alphaTab](https://www.alphatab.net/) — with a one-click toggle to show standard notation above the tab
 - Real mixer — per-track volume, mute, solo
 - Practice tools: loop sections (drag on the score, or `[` / `]` on the keyboard), metronome, count-in, tempo shifting, and a speed trainer that raises the tempo a notch after every loop pass
 - Jump to any bar or section marker, zoom the score, go fullscreen — and press `?` anytime for the shortcut cheat sheet

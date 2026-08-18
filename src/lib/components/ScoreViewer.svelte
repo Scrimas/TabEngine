@@ -313,7 +313,6 @@
 
     <div
       class="score-card"
-      class:horizontal={$settingsStore.layoutMode === 'horizontal'}
       on:animationend={refreshTuningLabels}
     >
       <div class="at-main"></div>
@@ -410,14 +409,6 @@
     padding: 10px;
     box-shadow: 0 14px 50px rgba(90,75,55,0.15);
     min-height: 100%;
-  }
-
-  /* Horizontal strip layout: the render is one endless row, so the card must
-     grow with its content instead of clamping to the page column width. */
-  .score-card.horizontal {
-    max-width: none;
-    width: max-content;
-    min-width: 100%;
   }
 
   .at-viewport.ready .score-card {

@@ -35,7 +35,6 @@
 
 // Import alphaTab as a namespace so we can access all sub-types.
 import * as alphaTab from '@coderline/alphatab';
-import { tick } from 'svelte';
 import { updatePlayer, resetPlayer, speedTrainerStore } from '$lib/stores/player';
 import { toast } from '$lib/stores/notifications';
 import { setTracks } from '$lib/stores/tracks';
@@ -137,9 +136,6 @@ export function initAlphaTab(container: HTMLElement): void {
       ]),
     },
     display: {
-      layoutMode:   persisted.layoutMode === 'horizontal'
-                      ? alphaTab.LayoutMode.Horizontal
-                      : alphaTab.LayoutMode.Page,
       scale:        Math.max(0.25, Math.min(2.0, persisted.displayScale)),
       staveProfile: persisted.staveProfile === 'scoretab'
                       ? alphaTab.StaveProfile.ScoreTab
@@ -573,54 +569,6 @@ export function setStaveProfile(profile: 'tab' | 'scoretab'): void {
   api.updateSettings();
   api.render();
   persistSettings({ staveProfile: profile });
-}
-
-/** Toggle between page (vertical rows) and horizontal (single-strip) layout. */
-export async function setLayoutMode(mode: 'page' | 'horizontal'): Promise<void> {
-  if (!api) return;
-  api.settings.display.layoutMode = mode === 'horizontal'
-    ? alphaTab.LayoutMode.Horizontal
-    : alphaTab.LayoutMode.Page;
-  api.updateSettings();
-  // Persist BEFORE rendering and wait one Svelte flush: the .score-card CSS
-  // class (page column vs. max-content strip) is bound to this setting, and
-  // alphaTab measures its container width when render() runs. Rendering
-  // before the class applied made horizontal → page lay the "page" out at
-  // the old strip's enormous width (one endless row); the corrective
-  // resize-render then reflowed everything after the scroll restore had
-  // already run against the dead bounds.
-  persistSettings({ layoutMode: mode });
-  await tick();
-  api.render();
-  scrollToCurrentBarAfterRender();
-}
-
-/** Master-bar index containing the current playback tick (0 if unknown). */
-function currentMasterBarIndex(): number {
-  const tick = get(playerStore).currentTick;
-  const bars = api?.tickCache?.masterBars ?? [];
-  for (let i = bars.length - 1; i >= 0; i--) {
-    if (bars[i].start <= tick) return bars[i].masterBar.index;
-  }
-  return 0;
-}
-
-/**
- * Switching page ↔ horizontal invalidates every on-screen coordinate, but the
- * viewport keeps its old scroll offsets — the music can end up entirely
- * off-screen (e.g. a page-mode scrollTop maps to nothing on the short
- * horizontal strip, and coming back lands at the top of the page regardless
- * of where the cursor is). Once the new bounds exist, bring the current bar
- * back into view.
- */
-function scrollToCurrentBarAfterRender(): void {
-  if (!api?.score) return;
-  const target  = currentMasterBarIndex();
-  const handler = () => {
-    api!.postRenderFinished.off(handler);
-    scrollBarIntoView(target);
-  };
-  api.postRenderFinished.on(handler);
 }
 
 export function setMasterVolume(pct: number): void {
@@ -1153,8 +1101,8 @@ function rowStartIndices(): number[] {
 
 /**
  * Scrolls the given bar's rendered row into view, replicating the exact
- * formula alphaTab's own scroll handlers use during playback (the bar's
- * realBounds plus the configured scroll offset, on the layout axis). Keyboard
+ * formula alphaTab's own VerticalContinuousScrollHandler uses during
+ * playback (bar's realBounds.y + the configured scrollOffsetY). Keyboard
  * seeks jump the tick position directly without playing, so alphaTab's
  * built-in auto-scroll never kicks in (it only scrolls in response to
  * playback advancing) — without this, the cursor can land off-screen with
@@ -1167,15 +1115,8 @@ function scrollBarIntoView(barIndex: number): void {
   const ui     = api.uiFacade;
   const scroll = ui.getScrollContainer();
   const elementOffset = ui.getOffset(scroll, api.container);
-  if (api.settings.display.layoutMode === alphaTab.LayoutMode.Horizontal) {
-    // Horizontal strip: the playhead moves along X (HorizontalScreenLayout's
-    // own scroll handler formula).
-    const x = bounds.realBounds.x + api.settings.player.scrollOffsetX;
-    ui.scrollToX(scroll, elementOffset.x + x, api.settings.player.scrollSpeed);
-  } else {
-    const y = bounds.realBounds.y + api.settings.player.scrollOffsetY;
-    ui.scrollToY(scroll, elementOffset.y + y, api.settings.player.scrollSpeed);
-  }
+  const y = bounds.realBounds.y + api.settings.player.scrollOffsetY;
+  ui.scrollToY(scroll, elementOffset.y + y, api.settings.player.scrollSpeed);
 }
 
 /** Seek to the start of the previous bar (with a small hysteresis window). */
