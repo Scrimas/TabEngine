@@ -628,7 +628,7 @@
             <input
               type="range"
               min="0"
-              max="100"
+              max="200"
               step="5"
               value={$settingsStore.metronomeVolume}
               on:input={onMetronomeVolumeInput}

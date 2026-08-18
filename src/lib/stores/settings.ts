@@ -5,7 +5,7 @@ import type { LibrarySortField } from '$lib/types';
 
 export interface AppSettings {
   theme:            'parchment' | 'dark';
-  metronomeVolume:  number; // 0–100
+  metronomeVolume:  number; // 0–200 (values over 100 amplify the click)
   libraryDir:       string | null;
   librarySortField: LibrarySortField;
   // Layout — restored on launch
