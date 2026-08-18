@@ -1,5 +1,17 @@
 <script lang="ts">
   import { confirmStore } from '$lib/stores/notifications';
+  import { overlayOpened, overlayClosed } from '$lib/stores/overlays';
+
+  // Report to the overlays store so App's global Escape handler doesn't also
+  // stop playback while a confirm dialog is open.
+  let wasOpen = false;
+  $: {
+    const isOpen = !!$confirmStore;
+    if (isOpen !== wasOpen) {
+      wasOpen = isOpen;
+      if (isOpen) overlayOpened(); else overlayClosed();
+    }
+  }
 
   // Focus the cancel button on open (safe default for destructive dialogs)
   // and restore focus to whatever had it before the dialog appeared.

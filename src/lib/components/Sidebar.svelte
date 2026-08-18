@@ -165,9 +165,9 @@
   async function openContextMenu(e: MouseEvent, entry: LibraryEntry) {
     e.preventDefault();
     e.stopPropagation();
+    if (!contextMenu) overlayOpened(); // re-opening on another entry keeps the count at 1
     contextMenu = { x: e.clientX, y: e.clientY, entry };
     contextMenuAddMode = false;
-    overlayOpened();
     // Right-clicking doesn't move DOM focus, and in the Tauri webview that can
     // leave the very next keydown (Escape) undelivered until something is
     // clicked. Force focus onto the menu itself so Escape works immediately.

@@ -12,12 +12,14 @@ TabEngine is free, and it's staying that way — no paywalled updates, no premiu
 
 ## What it does
 
-- Opens GP3 / GP4 / GP5 / GPX files and renders synced tab + standard notation, powered by [alphaTab](https://www.alphatab.net/)
-- Real mixer — per-track volume, mute, solo, pan
-- Loop sections, metronome, and tempo shifting for the parts you need to slow down
-- Works fully offline once you have a file
-- No local file? Search and pull tabs straight from [Songsterr](https://www.songsterr.com/) without leaving the app — including copyright-restricted songs, via a built-in fallback downloader
-- Playlists with drag-to-reorder and auto-advance playback, plus a sortable library (by name, date added, date opened, or file type)
+- Opens GP3 / GP4 / GP5 / GPX files and renders synced tablature, powered by [alphaTab](https://www.alphatab.net/) — with a one-click toggle to show standard notation above the tab, and page or horizontal-strip layouts
+- Real mixer — per-track volume, mute, solo
+- Practice tools: loop sections (drag on the score, or `[` / `]` on the keyboard), metronome, count-in, tempo shifting, and a speed trainer that raises the tempo a notch after every loop pass
+- Jump to any bar or section marker, zoom the score, go fullscreen — and press `?` anytime for the shortcut cheat sheet
+- Export to MIDI, WAV audio, or Guitar Pro (.gp), or print the sheet
+- Works fully offline once you have a file, and reopens where you left off — last song, panels, volume, speed, zoom all restored
+- No local file? Search and pull tabs straight from [Songsterr](https://www.songsterr.com/) without leaving the app — filter by instrument, including copyright-restricted songs via a built-in fallback downloader
+- Playlists with drag-to-reorder, auto-advance, repeat and shuffle — plus a sortable, searchable library that shows each song's real title and artist and can scan a folder of your existing tabs
 
 ## Screenshots
 
