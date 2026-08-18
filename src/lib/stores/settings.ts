@@ -9,6 +9,20 @@ export interface AppSettings {
   countInBars:      number; // 1 or 2
   libraryDir:       string | null;
   librarySortField: LibrarySortField;
+  // Layout — restored on launch
+  sidebarOpen:      boolean;
+  mixerOpen:        boolean;
+  sidebarWidth:     number; // px
+  mixerWidth:       number; // px
+  // Playback preferences — seeded into the player store and applied to the
+  // alphaTab api at startup (AlphaTabManager.initAlphaTab)
+  masterVolume:     number;  // 0–100
+  playbackSpeed:    number;  // multiplier, 0.25–2.0
+  metronomeEnabled: boolean;
+  countInEnabled:   boolean;
+  displayScale:     number;  // score zoom, 0.25–2.0
+  // Session restore
+  lastOpenedFile:   string | null;
 }
 
 const SETTINGS_KEY = 'tabengine:settings';
@@ -19,6 +33,16 @@ const DEFAULT_SETTINGS: AppSettings = {
   countInBars:      1,
   libraryDir:       null,
   librarySortField: 'name',
+  sidebarOpen:      true,
+  mixerOpen:        true,
+  sidebarWidth:     288,
+  mixerWidth:       332,
+  masterVolume:     100,
+  playbackSpeed:    1.0,
+  metronomeEnabled: false,
+  countInEnabled:   false,
+  displayScale:     0.95,
+  lastOpenedFile:   null,
 };
 
 function loadSettings(): AppSettings {

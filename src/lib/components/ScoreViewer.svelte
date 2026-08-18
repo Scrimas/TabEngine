@@ -20,6 +20,7 @@
   import { importFileToLibrary, recordOpen } from '$lib/stores/library';
   import { toast } from '$lib/stores/notifications';
   import { noteLoadedPath, peekNextInQueue } from '$lib/stores/playlists';
+  import { updateSettings } from '$lib/stores/settings';
   import type { LibraryEntry } from '$lib/types';
   import { canvasToViewport } from '$lib/alphatab/canvasCoords';
 
@@ -180,6 +181,7 @@
       const buf: ArrayBuffer = await invoke('read_gp_file', { path });
       loadFromBytes(new Uint8Array(buf));
       noteLoadedPath(path);
+      updateSettings({ lastOpenedFile: path });
     } catch (err) {
       reportLoadFailure('Failed to load file', err);
     }

@@ -46,7 +46,7 @@ import { TRACK_COLORS, formatTuning } from '$lib/types';
 import type { TrackState, LoopHighlightBounds } from '$lib/types';
 import { get } from 'svelte/store';
 import { playerStore } from '$lib/stores/player';
-import { settingsStore } from '$lib/stores/settings';
+import { settingsStore, updateSettings as persistSettings } from '$lib/stores/settings';
 import { getInstrumentName } from '$lib/utils/generalMidi';
 
 // ── Singleton state ───────────────────────────────────────────────────────────
@@ -108,7 +108,8 @@ export function initAlphaTab(container: HTMLElement): void {
   // The reactive block in App.svelte calls setThemeSettings() during component
   // initialisation — before onMount runs and before api exists — so that call
   // is always a no-op at startup. Pre-seeding here fixes dark-mode on startup.
-  const isDark = get(settingsStore).theme === 'dark';
+  const persisted = get(settingsStore);
+  const isDark = persisted.theme === 'dark';
 
   const settings: ConstructorParameters<typeof alphaTab.AlphaTabApi>[1] = {
     core: {
@@ -133,7 +134,7 @@ export function initAlphaTab(container: HTMLElement): void {
     },
     display: {
       layoutMode:   alphaTab.LayoutMode.Page,
-      scale:        0.95,
+      scale:        Math.max(0.25, Math.min(2.0, persisted.displayScale)),
       staveProfile: alphaTab.StaveProfile.Tab,
       // padding: [top, right, bottom, left] in pt
       padding:      [10, 15, 10, 15],
@@ -216,6 +217,21 @@ export function initAlphaTab(container: HTMLElement): void {
   // in-place mutations of api.settings are invisible to it, unlike the old
   // main-thread renderer which shared the object by reference.
   api.updateSettings();
+
+  // Restore persisted playback preferences. metronomeVolumeLimit is already
+  // set — App.svelte's settings-sync reactive block runs during component
+  // initialisation, before this onMount-driven init. The store is seeded too
+  // so the UI reflects the restored values immediately.
+  api.masterVolume  = Math.max(0, Math.min(persisted.masterVolume, 100)) / 100;
+  api.playbackSpeed = Math.max(0.1, Math.min(2.0, persisted.playbackSpeed));
+  api.metronomeVolume = persisted.metronomeEnabled ? (metronomeVolumeLimit / 100) : 0;
+  api.countInVolume   = persisted.countInEnabled   ? (metronomeVolumeLimit / 100) : 0;
+  updatePlayer({
+    masterVolume:     Math.max(0, Math.min(persisted.masterVolume, 100)),
+    playbackSpeed:    api.playbackSpeed,
+    metronomeEnabled: persisted.metronomeEnabled,
+    countInEnabled:   persisted.countInEnabled,
+  });
 
   // ── Event wiring ───────────────────────────────────────────────────────────
 
@@ -524,33 +540,41 @@ export function resize():    void { api?.render(); }
 
 export function setDisplayScale(scale: number): void {
   if (!api) return;
-  api.settings.display.scale = Math.max(0.25, Math.min(2.0, scale));
+  const clamped = Math.max(0.25, Math.min(2.0, scale));
+  api.settings.display.scale = clamped;
   api.updateSettings();
+  api.render();
+  persistSettings({ displayScale: clamped });
 }
 
 export function setMasterVolume(pct: number): void {
   if (!api) return;
+  const clamped = Math.max(0, Math.min(pct, 100));
   // alphaTab masterVolume: 0.0–3.0 where 1.0 = 100%
-  api.masterVolume = Math.max(0, Math.min(pct, 100)) / 100;
-  updatePlayer({ masterVolume: pct });
+  api.masterVolume = clamped / 100;
+  updatePlayer({ masterVolume: clamped });
+  persistSettings({ masterVolume: clamped });
 }
 
 export function setPlaybackSpeed(speed: number): void {
   if (!api) return;
   api.playbackSpeed = Math.max(0.1, Math.min(2.0, speed));
   updatePlayer({ playbackSpeed: api.playbackSpeed });
+  persistSettings({ playbackSpeed: api.playbackSpeed });
 }
 
 export function setMetronomeEnabled(enabled: boolean): void {
   if (!api) return;
   api.metronomeVolume = enabled ? (metronomeVolumeLimit / 100) : 0;
   updatePlayer({ metronomeEnabled: enabled });
+  persistSettings({ metronomeEnabled: enabled });
 }
 
 export function setCountInEnabled(enabled: boolean): void {
   if (!api) return;
   api.countInVolume = enabled ? (metronomeVolumeLimit / 100) : 0;
   updatePlayer({ countInEnabled: enabled });
+  persistSettings({ countInEnabled: enabled });
 }
 
 export function setMetronomeVolumeLimit(volume: number): void {

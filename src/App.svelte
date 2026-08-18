@@ -26,23 +26,56 @@
   import { toast } from '$lib/stores/notifications';
   import type { LibraryEntry } from '$lib/types';
 
-  let sidebarOpen   = true;
-  let mixerOpen     = true;
+  let sidebarOpen   = $settingsStore.sidebarOpen;
+  let mixerOpen     = $settingsStore.mixerOpen;
   let browserOpen   = false;
   let settingsOpen  = false;
   let playlistsOpen = false;
 
   let scoreViewer: ScoreViewer;
 
+  function toggleSidebar() {
+    sidebarOpen = !sidebarOpen;
+    updateSettings({ sidebarOpen });
+    reclampWidths();
+  }
+
+  function toggleMixer() {
+    mixerOpen = !mixerOpen;
+    updateSettings({ mixerOpen });
+    reclampWidths();
+  }
+
   // ── Panel resize ──────────────────────────────────────────────────────────────
-  let sidebarWidth = 288;
-  let mixerWidth   = 332;
-  const MIN_PANEL  = 160;
-  const MAX_PANEL  = 600;
+  const MIN_PANEL = 160;
+  const MAX_PANEL = 600;
+  const MIN_SCORE = 320; // minimum room left for the score column
+
+  let sidebarWidth = $settingsStore.sidebarWidth;
+  let mixerWidth   = $settingsStore.mixerWidth;
 
   let resizing: 'sidebar' | 'mixer' | null = null;
   let resizeStartX = 0;
   let resizeStartWidth = 0;
+
+  /** Widest this panel may get right now, given the window and the other panel. */
+  function maxPanelWidth(panel: 'sidebar' | 'mixer'): number {
+    const other = panel === 'sidebar'
+      ? (mixerOpen ? mixerWidth : 0)
+      : (sidebarOpen ? sidebarWidth : 0);
+    return Math.min(MAX_PANEL, window.innerWidth - other - MIN_SCORE);
+  }
+
+  function clampPanel(width: number, panel: 'sidebar' | 'mixer'): number {
+    return Math.max(MIN_PANEL, Math.min(width, maxPanelWidth(panel)));
+  }
+
+  /** Re-clamp both panels (window resized, panel reopened, startup restore). */
+  function reclampWidths() {
+    sidebarWidth = clampPanel(sidebarWidth, 'sidebar');
+    mixerWidth   = clampPanel(mixerWidth, 'mixer');
+  }
+  reclampWidths(); // persisted widths may exceed the current window
 
   function startResize(e: PointerEvent, panel: 'sidebar' | 'mixer') {
     resizing = panel;
@@ -55,14 +88,16 @@
     if (!resizing) return;
     const delta = e.clientX - resizeStartX;
     if (resizing === 'sidebar') {
-      sidebarWidth = Math.max(MIN_PANEL, Math.min(MAX_PANEL, resizeStartWidth + delta));
+      sidebarWidth = clampPanel(resizeStartWidth + delta, 'sidebar');
     } else {
-      mixerWidth = Math.max(MIN_PANEL, Math.min(MAX_PANEL, resizeStartWidth - delta));
+      mixerWidth = clampPanel(resizeStartWidth - delta, 'mixer');
     }
   }
 
   function stopResize() {
+    if (!resizing) return;
     resizing = null;
+    updateSettings({ sidebarWidth, mixerWidth });
   }
 
   // ── Settings sync ─────────────────────────────────────────────────────────────
@@ -157,11 +192,11 @@
         break;
       case e.code === 'KeyB' && e.ctrlKey:
         e.preventDefault();
-        sidebarOpen = !sidebarOpen;
+        toggleSidebar();
         break;
       case e.code === 'KeyM' && e.ctrlKey && !e.shiftKey:
         e.preventDefault();
-        mixerOpen = !mixerOpen;
+        toggleMixer();
         break;
       case e.code === 'KeyF' && e.ctrlKey && e.shiftKey:
         e.preventDefault();
@@ -195,14 +230,25 @@
   }
 
   onMount(() => {
-    // Release any stuck resize if the window loses focus (pointer released outside webview)
-    const onBlur = () => { resizing = null; };
+    // Release any stuck resize if the window loses focus (pointer released
+    // outside the webview) — stopResize also persists the final widths.
+    const onBlur = () => stopResize();
     window.addEventListener('blur', onBlur);
+
+    // Session restore: reopen the last file. Existence is checked first so a
+    // moved/deleted file fails silently instead of toasting on every launch.
+    const last = $settingsStore.lastOpenedFile;
+    if (last) {
+      invoke('file_metadata', { path: last })
+        .then(() => scoreViewer?.loadFile(last))
+        .catch(() => updateSettings({ lastOpenedFile: null }));
+    }
+
     return () => window.removeEventListener('blur', onBlur);
   });
 </script>
 
-<svelte:window on:keydown={handleKeyDown} />
+<svelte:window on:keydown={handleKeyDown} on:resize={reclampWidths} />
 
 <div
   class="app-shell"
@@ -216,8 +262,8 @@
     {mixerOpen}
     theme={$settingsStore.theme}
     on:toggle-settings={() => settingsOpen = !settingsOpen}
-    on:toggle-sidebar={() => sidebarOpen = !sidebarOpen}
-    on:toggle-mixer={() => mixerOpen = !mixerOpen}
+    on:toggle-sidebar={toggleSidebar}
+    on:toggle-mixer={toggleMixer}
     on:toggle-theme={toggleTheme}
   />
   <Sidebar
@@ -230,7 +276,8 @@
   {#if sidebarOpen}
     <div
       class="resize-handle"
-      style="left: {sidebarWidth - 3}px"
+      class:active={resizing === 'sidebar'}
+      style="left: {sidebarWidth}px"
       on:pointerdown={(e) => startResize(e, 'sidebar')}
       on:pointermove={onPointerMove}
       on:pointerup={stopResize}
@@ -246,8 +293,9 @@
   <!-- Mixer drag handle -->
   {#if mixerOpen}
     <div
-      class="resize-handle"
-      style="right: {mixerWidth - 3}px"
+      class="resize-handle right"
+      class:active={resizing === 'mixer'}
+      style="right: {mixerWidth}px"
       on:pointerdown={(e) => startResize(e, 'mixer')}
       on:pointermove={onPointerMove}
       on:pointerup={stopResize}
@@ -299,10 +347,12 @@
     grid-template-columns: 0 1fr 0;
   }
 
-  /* Prevent text selection while dragging a panel border */
+  /* While dragging: no text selection, and no column animation — the grid
+     transition otherwise makes the panel lag behind the pointer. */
   .app-shell.is-resizing {
     cursor: col-resize;
     user-select: none;
+    transition: none;
   }
 
   /* Vertical drag handle overlaid at column boundaries */
@@ -311,15 +361,18 @@
     top: 48px;                      /* below titlebar */
     bottom: var(--control-bar-height);
     width: 6px;
-    transform: translateX(-50%);
+    transform: translateX(-50%);    /* centered on the column boundary */
     cursor: col-resize;
     z-index: 100;
     border-radius: 3px;
     background: transparent;
     transition: background 120ms;
   }
+  .resize-handle.right {
+    transform: translateX(50%);     /* `right:` anchors the other edge */
+  }
   .resize-handle:hover,
-  .app-shell.is-resizing .resize-handle {
+  .resize-handle.active {
     background: var(--accent);
     opacity: 0.35;
   }

@@ -20,6 +20,9 @@ pub fn run() {
         // ── Plugins ───────────────────────────────────────────────────────
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_shell::init())
+        // Saves/restores window geometry (size, position, maximized) across
+        // launches; `center: true` in tauri.conf.json only applies on first run.
+        .plugin(tauri_plugin_window_state::Builder::default().build())
         // ── IPC commands ──────────────────────────────────────────────────
         .invoke_handler(tauri::generate_handler![
             commands::read_gp_file,
