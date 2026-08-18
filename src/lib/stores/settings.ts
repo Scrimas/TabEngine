@@ -20,6 +20,9 @@ export interface AppSettings {
   metronomeEnabled: boolean;
   countInEnabled:   boolean;
   displayScale:     number;  // score zoom, 0.25–2.0
+  // View
+  staveProfile:     'tab' | 'scoretab';    // tab only, or standard notation + tab
+  layoutMode:       'page' | 'horizontal';
   // Session restore
   lastOpenedFile:   string | null;
 }
@@ -40,6 +43,8 @@ const DEFAULT_SETTINGS: AppSettings = {
   metronomeEnabled: false,
   countInEnabled:   false,
   displayScale:     0.95,
+  staveProfile:     'tab',
+  layoutMode:       'page',
   lastOpenedFile:   null,
 };
 

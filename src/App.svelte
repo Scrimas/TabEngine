@@ -15,7 +15,9 @@
   import {
     playPause, stop, seekToPrevBar, seekToNextBar, seekToPrevRow, seekToNextRow,
     setThemeSettings, setMetronomeVolumeLimit,
+    setStaveProfile, setLayoutMode,
   } from '$lib/alphatab/AlphaTabManager';
+  import { getCurrentWindow } from '@tauri-apps/api/window';
 
   import { open as tauriOpen } from '@tauri-apps/plugin-dialog';
   import { invoke } from '@tauri-apps/api/core';
@@ -119,6 +121,23 @@
     updateSettings({ theme: $settingsStore.theme === 'parchment' ? 'dark' : 'parchment' });
   }
 
+  function toggleNotation() {
+    setStaveProfile($settingsStore.staveProfile === 'scoretab' ? 'tab' : 'scoretab');
+  }
+
+  function toggleLayout() {
+    setLayoutMode($settingsStore.layoutMode === 'horizontal' ? 'page' : 'horizontal');
+  }
+
+  async function toggleFullscreen() {
+    try {
+      const win = getCurrentWindow();
+      await win.setFullscreen(!(await win.isFullscreen()));
+    } catch (err) {
+      console.error('[App] Fullscreen toggle failed:', err);
+    }
+  }
+
   // ── Sidebar / Playlists load ─────────────────────────────────────────────────
   async function handleSidebarLoad(e: CustomEvent<string>) {
     await scoreViewer?.loadFile(e.detail);
@@ -190,6 +209,10 @@
       case (e.key === '?' && !e.ctrlKey && !e.altKey) || (e.key === '/' && e.ctrlKey):
         e.preventDefault();
         shortcutsOpen = !shortcutsOpen;
+        break;
+      case e.code === 'F11':
+        e.preventDefault();
+        toggleFullscreen();
         break;
       case e.code === 'KeyO' && e.ctrlKey:
         e.preventDefault();
@@ -266,10 +289,14 @@
     {sidebarOpen}
     {mixerOpen}
     theme={$settingsStore.theme}
+    staveProfile={$settingsStore.staveProfile}
+    layoutMode={$settingsStore.layoutMode}
     on:toggle-settings={() => settingsOpen = !settingsOpen}
     on:toggle-sidebar={toggleSidebar}
     on:toggle-mixer={toggleMixer}
     on:toggle-theme={toggleTheme}
+    on:toggle-notation={toggleNotation}
+    on:toggle-layout={toggleLayout}
   />
   <Sidebar
     on:load={handleSidebarLoad}

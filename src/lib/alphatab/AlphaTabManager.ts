@@ -132,9 +132,13 @@ export function initAlphaTab(container: HTMLElement): void {
       ]),
     },
     display: {
-      layoutMode:   alphaTab.LayoutMode.Page,
+      layoutMode:   persisted.layoutMode === 'horizontal'
+                      ? alphaTab.LayoutMode.Horizontal
+                      : alphaTab.LayoutMode.Page,
       scale:        Math.max(0.25, Math.min(2.0, persisted.displayScale)),
-      staveProfile: alphaTab.StaveProfile.Tab,
+      staveProfile: persisted.staveProfile === 'scoretab'
+                      ? alphaTab.StaveProfile.ScoreTab
+                      : alphaTab.StaveProfile.Tab,
       // padding: [top, right, bottom, left] in pt
       padding:      [10, 15, 10, 15],
       // Extra vertical breathing room between rendered rows (systems) so the
@@ -545,6 +549,28 @@ export function setDisplayScale(scale: number): void {
   api.updateSettings();
   api.render();
   persistSettings({ displayScale: clamped });
+}
+
+/** Toggle between tab-only and standard notation + tab. */
+export function setStaveProfile(profile: 'tab' | 'scoretab'): void {
+  if (!api) return;
+  api.settings.display.staveProfile = profile === 'scoretab'
+    ? alphaTab.StaveProfile.ScoreTab
+    : alphaTab.StaveProfile.Tab;
+  api.updateSettings();
+  api.render();
+  persistSettings({ staveProfile: profile });
+}
+
+/** Toggle between page (vertical rows) and horizontal (single-strip) layout. */
+export function setLayoutMode(mode: 'page' | 'horizontal'): void {
+  if (!api) return;
+  api.settings.display.layoutMode = mode === 'horizontal'
+    ? alphaTab.LayoutMode.Horizontal
+    : alphaTab.LayoutMode.Page;
+  api.updateSettings();
+  api.render();
+  persistSettings({ layoutMode: mode });
 }
 
 export function setMasterVolume(pct: number): void {

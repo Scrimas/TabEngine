@@ -30,6 +30,7 @@
         { keys: ['Ctrl', 'Shift', 'F'], label: 'Songsterr browser' },
         { keys: ['Ctrl', 'Shift', 'P'], label: 'Playlists' },
         { keys: ['Ctrl', ','],          label: 'Settings' },
+        { keys: ['F11'],                label: 'Fullscreen' },
         { keys: ['?'],                  label: 'This cheat sheet' },
       ],
     },

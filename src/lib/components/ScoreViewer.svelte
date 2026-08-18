@@ -20,7 +20,7 @@
   import { importFileToLibrary, recordOpen } from '$lib/stores/library';
   import { toast } from '$lib/stores/notifications';
   import { noteLoadedPath, peekNextInQueue } from '$lib/stores/playlists';
-  import { updateSettings } from '$lib/stores/settings';
+  import { settingsStore, updateSettings } from '$lib/stores/settings';
   import type { LibraryEntry } from '$lib/types';
   import { canvasToViewport } from '$lib/alphatab/canvasCoords';
 
@@ -285,6 +285,7 @@
 
     <div
       class="score-card"
+      class:horizontal={$settingsStore.layoutMode === 'horizontal'}
       on:animationend={refreshTuningLabels}
     >
       <div class="at-main"></div>
@@ -381,6 +382,14 @@
     padding: 10px;
     box-shadow: 0 14px 50px rgba(90,75,55,0.15);
     min-height: 100%;
+  }
+
+  /* Horizontal strip layout: the render is one endless row, so the card must
+     grow with its content instead of clamping to the page column width. */
+  .score-card.horizontal {
+    max-width: none;
+    width: max-content;
+    min-width: 100%;
   }
 
   .at-viewport.ready .score-card {
