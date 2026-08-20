@@ -178,6 +178,10 @@ export function initAlphaTab(container: HTMLElement): void {
       // late, because already-synthesized samples keep playing.
       bufferTimeInMilliseconds: 1500,
       enableCursor:   true,
+      // alphaTab toggles an `at-highlight` class on the played beat's SVG
+      // elements every beat. Nothing styles that class here, so it was pure
+      // style-invalidation churn on the score DOM during playback.
+      enableElementHighlighting: false,
       scrollElement:  viewportEl,
       scrollMode:     alphaTab.ScrollMode.Continuous,
       scrollOffsetX:  0,
@@ -248,6 +252,9 @@ export function initAlphaTab(container: HTMLElement): void {
   // 2. Player ready (SF2 fully parsed, synthesis engine warm)
   api.playerReady.on(() => {
     updatePlayer({ isReady: true, sfLoaded: true, sfLoadProgress: 1 });
+    // The AudioContext alphaTab opened at init is already running — park it
+    // until the first play (see scheduleIdleAudioSuspend).
+    scheduleIdleAudioSuspend();
   });
 
   // 3. Position ticker — drives the scrubber + cursor synchronisation
@@ -269,9 +276,10 @@ export function initAlphaTab(container: HTMLElement): void {
 
   // 4. Play/pause state toggle
   api.playerStateChanged.on((e) => {
-    updatePlayer({
-      isPlaying: e.state === alphaTab.synth.PlayerState.Playing,
-    });
+    const playing = e.state === alphaTab.synth.PlayerState.Playing;
+    updatePlayer({ isPlaying: playing });
+    if (playing) cancelIdleAudioSuspend();
+    else scheduleIdleAudioSuspend();
   });
 
   // 5. Score loaded — build the mixer track list, then suppress rest glyphs in
@@ -538,6 +546,45 @@ function applyRealBoundsCursorHandler(api: alphaTab.AlphaTabApi): void {
       beatCursor.transitionToX(duration * factor, startBeatX + (nextBeatX - startBeatX) * factor);
     },
   };
+}
+
+// ── Idle AudioContext suspension ──────────────────────────────────────────────
+// alphaTab creates the AudioContext when the player initialises and only ever
+// connects/disconnects its worklet node on play/pause — the context itself
+// stays "running" for the app's lifetime. A running context keeps the
+// platform audio pipeline alive (on WebKitGTK: GStreamer output + the
+// worklet thread pulling silence at ~375 Hz, an uncorked PipeWire stream,
+// measured 3–4 % CPU with nothing playing) and prevents the sound device
+// from power-suspending. Suspend it after a short grace period whenever
+// playback is not running; alphaTab's own `play()` calls `activate()`, which
+// resumes a suspended context before starting, so nothing else is needed.
+const IDLE_AUDIO_SUSPEND_MS = 2000;
+let idleAudioTimer: ReturnType<typeof setTimeout> | null = null;
+
+function audioContext(): AudioContext | null {
+  // `context` lives on alphaTab's web-audio output classes, not on the
+  // ISynthOutput interface.
+  const output = api?.player?.output as { context?: AudioContext | null } | undefined;
+  return output?.context ?? null;
+}
+
+function scheduleIdleAudioSuspend(): void {
+  cancelIdleAudioSuspend();
+  idleAudioTimer = setTimeout(() => {
+    idleAudioTimer = null;
+    if (get(playerStore).isPlaying) return;
+    const ctx = audioContext();
+    if (ctx && ctx.state === 'running') {
+      ctx.suspend().catch(err => console.warn('[AlphaTabManager] AudioContext suspend failed', err));
+    }
+  }, IDLE_AUDIO_SUSPEND_MS);
+}
+
+function cancelIdleAudioSuspend(): void {
+  if (idleAudioTimer) {
+    clearTimeout(idleAudioTimer);
+    idleAudioTimer = null;
+  }
 }
 
 // ── Transport controls ────────────────────────────────────────────────────────
@@ -1398,6 +1445,7 @@ export function printScore(): void {
 // ── Cleanup ───────────────────────────────────────────────────────────────────
 
 export function destroyAlphaTab(): void {
+  cancelIdleAudioSuspend();
   api?.destroy();
   api          = null;
   viewportEl   = null;
