@@ -288,27 +288,10 @@ input[type='range']:disabled {
   outline: none;
 }
 
-/* ── Subtle paper texture on #app ──────────────────────────────────────── */
-#app::before {
-  content:  '';
-  position: fixed;
-  inset:    0;
-  background-image:
-    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='200'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.018'/%3E%3C/svg%3E");
-  pointer-events: none;
-  z-index:        0;
-  opacity:        1;
-}
-
-/* Ensure app content sits above the texture. :where() zeroes the specificity:
-   a bare `#app > *` (ID selector) outweighs Svelte's scoped class selectors,
-   silently overriding the `position: fixed` of top-level overlay components
-   (settings, confirm dialogs, toasts …) — they then land in normal flow below
-   the 100%-height app shell instead of centering in the viewport. */
-:where(#app) > * {
-  position: relative;
-  z-index:  1;
-}
+/* NOTE: a full-window `#app::before` paper-grain texture (feTurbulence SVG at
+   1.8 % opacity) used to live here. It was one more full-window compositing
+   layer (≈35 MB at 2× scale) blended on every frame for an effect that was
+   not perceptible — removed in the 2026-08 performance pass. */
 
 /* ── Animations ──────────────────────────────────────────────────────────── */
 @keyframes fadeIn {
@@ -336,19 +319,9 @@ input[type='range']:disabled {
   to   { transform: translateX(0);    opacity: 1; }
 }
 
-@keyframes pulse-glow {
-  0%, 100% { box-shadow: 0 4px 16px rgba(217, 138, 82, 0.30); }
-  50%      { box-shadow: 0 4px 28px rgba(217, 138, 82, 0.55); }
-}
-
 @keyframes float-y {
   0%, 100% { transform: translateY(0); }
   50%      { transform: translateY(-6px); }
-}
-
-@keyframes eq {
-  from { transform: scaleY(0.22); }
-  to   { transform: scaleY(1); }
 }
 
 /* ── Reduced motion ──────────────────────────────────────────────────────── */

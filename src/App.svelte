@@ -387,7 +387,10 @@
       'f f f';
     overflow: hidden;
     background: var(--bg-base);
-    transition: grid-template-columns var(--transition-slow);
+    /* Deliberately no transition on grid-template-columns: animating the
+       column widths changed the score column every frame, and alphaTab
+       re-laid the whole score out on each one (10 ms resize throttle →
+       ~30 relayouts per toggle). Panels now snap open/closed. */
     position: relative;
   }
 
@@ -401,12 +404,10 @@
     grid-template-columns: 0 1fr 0;
   }
 
-  /* While dragging: no text selection, and no column animation — the grid
-     transition otherwise makes the panel lag behind the pointer. */
+  /* While dragging: no text selection. */
   .app-shell.is-resizing {
     cursor: col-resize;
     user-select: none;
-    transition: none;
   }
 
   /* Vertical drag handle overlaid at column boundaries */

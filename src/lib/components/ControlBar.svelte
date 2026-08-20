@@ -796,7 +796,8 @@
   }
   .play-btn:hover:not(:disabled) { filter: brightness(1.08); }
   .play-btn:active:not(:disabled) { transform: scale(0.95); }
-  .play-btn.playing { animation: pulse-glow 2.4s var(--ease-out) infinite; }
+  /* No pulsing glow while playing: animating box-shadow re-rasterises the
+     button every frame for the whole playback (2026-08 performance pass). */
   .play-btn:disabled { opacity: 0.35; cursor: not-allowed; box-shadow: none; }
 
   /* ── Timeline ───────────────────────────────────────────────────────────── */

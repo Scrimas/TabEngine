@@ -11,14 +11,6 @@
   function onMasterVolume(e: Event) {
     setMasterVolume(Number((e.target as HTMLInputElement).value));
   }
-
-  // 20 EQ bars with staggered animation delays and random heights
-  const EQ_BARS = Array.from({ length: 20 }, (_, i) => ({
-    delay: `${(i * 0.11) % 1.2}s`,
-    dur:   `${0.55 + (i % 5) * 0.13}s`,
-  }));
-
-  $: playing = $playerStore.isPlaying;
 </script>
 
 <aside class="mixer" aria-label="Mixer">
@@ -61,17 +53,6 @@
         on:input={onMasterVolume}
         aria-label="Master volume"
       />
-    </div>
-
-    <!-- EQ bars visualizer -->
-    <div class="eq-bars" aria-hidden="true">
-      {#each EQ_BARS as bar}
-        <div
-          class="eq-bar"
-          class:playing
-          style="animation-delay:{bar.delay};animation-duration:{bar.dur}"
-        ></div>
-      {/each}
     </div>
   </div>
 
@@ -192,36 +173,6 @@
 
   .master-fader-wrap input[type=range]::-webkit-slider-runnable-track {
     background: var(--slider-track);
-  }
-
-  /* ── EQ bars ────────────────────────────────────────────────────────────── */
-  .eq-bars {
-    display: flex;
-    align-items: flex-end;
-    gap: 3px;
-    height: 22px;
-  }
-
-  .eq-bar {
-    flex: 1;
-    height: 100%;
-    background: linear-gradient(to top, var(--accent), var(--accent-bright));
-    border-radius: 2px 2px 1px 1px;
-    transform-origin: bottom;
-    transform: scaleY(0.22);
-    animation: eq 0.6s ease-in-out infinite alternate;
-    animation-play-state: paused;
-    opacity: 0.55;
-  }
-
-  .eq-bar.playing {
-    animation-play-state: running;
-    opacity: 1;
-  }
-
-  @keyframes eq {
-    from { transform: scaleY(0.22); }
-    to   { transform: scaleY(1); }
   }
 
   /* ── Track channel list ─────────────────────────────────────────────────── */

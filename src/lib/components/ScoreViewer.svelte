@@ -534,7 +534,9 @@
      every scroll step during playback) looking for that string — and for
      "vibrato text", which alphaTab 1.8 no longer renders as text at all. */
   :global(.at-surface > div:last-child) {
-    display: none;
+    /* visibility, not display: alphaTab sets `display: inline-block` inline
+       on every placeholder, which would win over a stylesheet display rule. */
+    visibility: hidden;
   }
 
 </style>
