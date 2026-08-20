@@ -128,16 +128,50 @@ pub async fn file_metadata(path: String) -> Result<LibraryEntry, String> {
     .await
 }
 
-/// Save `bytes` into `dest_dir` under `filename` without clobbering existing
-/// files: a name whose content is already identical is reused (re-download of
-/// the same tab), other collisions fall back to a "name (1).ext" suffix.
-/// Returns the entry for the file written or reused.
+/// Read a percent-encoded UTF-8 string header from a raw-body IPC request.
+fn header_string(request: &tauri::ipc::Request<'_>, name: &str) -> Result<String, String> {
+    let encoded = request
+        .headers()
+        .get(name)
+        .ok_or_else(|| format!("Missing {} header.", name))?
+        .to_str()
+        .map_err(|_| format!("Invalid {} header.", name))?;
+    percent_encoding::percent_decode_str(encoded)
+        .decode_utf8()
+        .map(|s| s.to_string())
+        .map_err(|_| format!("{} header is not valid UTF-8.", name))
+}
+
+/// Take the raw-bytes body of an IPC request, enforcing a size cap.
+fn raw_body(request: &tauri::ipc::Request<'_>, max_bytes: u64) -> Result<Vec<u8>, String> {
+    let tauri::ipc::InvokeBody::Raw(bytes) = request.body() else {
+        return Err("Expected a raw-bytes body.".to_string());
+    };
+    if bytes.len() as u64 > max_bytes {
+        return Err(format!(
+            "Payload exceeds the {} MB size limit.",
+            max_bytes / (1024 * 1024)
+        ));
+    }
+    Ok(bytes.clone())
+}
+
+/// Save the request's raw-bytes body into `x-dest-dir` under `x-filename`
+/// (both percent-encoded headers, like `export_file`) without clobbering
+/// existing files: a name whose content is already identical is reused
+/// (re-download of the same tab), other collisions fall back to a
+/// "name (1).ext" suffix. Returns the entry for the file written or reused.
+///
+/// Raw body rather than a JSON `Vec<u8>` argument: the old signature made the
+/// frontend send `Array.from(bytes)`, a 4-5x larger JSON number array
+/// serialised in JS and parsed by serde for every Songsterr download.
 #[tauri::command]
 pub async fn save_gp_file_to_dir(
-    dest_dir: String,
-    filename: String,
-    bytes: Vec<u8>,
+    request: tauri::ipc::Request<'_>,
 ) -> Result<LibraryEntry, String> {
+    let dest_dir = header_string(&request, "x-dest-dir")?;
+    let filename = header_string(&request, "x-filename")?;
+    let bytes = raw_body(&request, MAX_FILE_BYTES)?;
     blocking(move || {
         if filename.contains('/') || filename.contains('\\') {
             return Err("File name cannot contain path separators.".to_string());
@@ -413,19 +447,11 @@ const EXPORT_EXTENSIONS: &[&str] = &["mid", "wav", "gp"];
 /// The payload arrives as a raw-bytes IPC body (WAV renders are tens of
 /// megabytes — JSON-array serialization would be prohibitively slow), so the
 /// destination path travels percent-encoded in a request header (headers must
-/// be ASCII).
+/// be ASCII). Async + blocking pool like every other command: a synchronous
+/// `fs::write` of a multi-MB WAV stalled the UI for its duration.
 #[tauri::command]
-pub fn export_file(request: tauri::ipc::Request<'_>) -> Result<String, String> {
-    let encoded = request
-        .headers()
-        .get("x-export-path")
-        .ok_or("Missing x-export-path header.")?
-        .to_str()
-        .map_err(|_| "Invalid x-export-path header.".to_string())?;
-    let path_str = percent_encoding::percent_decode_str(encoded)
-        .decode_utf8()
-        .map_err(|_| "Export path is not valid UTF-8.".to_string())?
-        .to_string();
+pub async fn export_file(request: tauri::ipc::Request<'_>) -> Result<String, String> {
+    let path_str = header_string(&request, "x-export-path")?;
 
     let path = PathBuf::from(&path_str);
     let ext = path
@@ -440,13 +466,10 @@ pub fn export_file(request: tauri::ipc::Request<'_>) -> Result<String, String> {
         ));
     }
 
-    let tauri::ipc::InvokeBody::Raw(bytes) = request.body() else {
-        return Err("Expected a raw-bytes body.".to_string());
-    };
-    if bytes.len() as u64 > 512 * 1024 * 1024 {
-        return Err("Export exceeds the 512 MB size limit.".to_string());
-    }
-
-    fs::write(&path, bytes).map_err(|e| format!("Could not write '{}': {}", path_str, e))?;
-    Ok(path_str)
+    let bytes = raw_body(&request, 512 * 1024 * 1024)?;
+    blocking(move || {
+        fs::write(&path, bytes).map_err(|e| format!("Could not write '{}': {}", path_str, e))?;
+        Ok(path_str)
+    })
+    .await
 }

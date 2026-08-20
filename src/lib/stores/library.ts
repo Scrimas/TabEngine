@@ -174,10 +174,13 @@ export async function saveBytesToLibrary(
   filename: string,
   bytes: Uint8Array,
 ): Promise<LibraryEntry> {
-  return invoke<LibraryEntry>('save_gp_file_to_dir', {
-    destDir,
-    filename,
-    bytes: Array.from(bytes),
+  // Raw-bytes IPC body (same pattern as export_file) — `Array.from(bytes)`
+  // used to send a JSON number array 4-5x the file size.
+  return invoke<LibraryEntry>('save_gp_file_to_dir', bytes, {
+    headers: {
+      'x-dest-dir': encodeURIComponent(destDir),
+      'x-filename': encodeURIComponent(filename),
+    },
   });
 }
 
