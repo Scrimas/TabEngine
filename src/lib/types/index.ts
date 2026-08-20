@@ -8,12 +8,6 @@ export interface PlayerState {
   sfLoaded:        boolean;
   sfLoadProgress:  number;    // 0–1
 
-  currentTime:     number;    // ms
-  totalTime:       number;    // ms
-  currentTick:     number;
-  totalTicks:      number;
-
-  tempo:           number;    // BPM from score
   playbackSpeed:   number;    // multiplier, 0.25–2.0
 
   isLooping:       boolean;
@@ -23,6 +17,27 @@ export interface PlayerState {
   masterVolume:    number;    // 0–100
   countInEnabled:  boolean;
 }
+
+/**
+ * High-frequency transport position, kept in its own store (`positionStore`)
+ * so that the ~375 position events/s alphaTab emits during playback never
+ * invalidate the components that only care about `PlayerState`.
+ */
+export interface PlaybackPosition {
+  currentTime: number;    // ms
+  totalTime:   number;    // ms
+  currentTick: number;
+  totalTicks:  number;
+  tempo:       number;    // BPM at the current position (score tempo, pre-speed)
+}
+
+export const DEFAULT_PLAYBACK_POSITION: PlaybackPosition = {
+  currentTime: 0,
+  totalTime:   0,
+  currentTick: 0,
+  totalTicks:  0,
+  tempo:       120,
+};
 
 /** Canvas-space bounds of the two beats bounding the active loop selection,
  *  used to position the draggable edge handles. Mirrors alphaTab's
@@ -38,11 +53,6 @@ export const DEFAULT_PLAYER_STATE: PlayerState = {
   isReady:         false,
   sfLoaded:        false,
   sfLoadProgress:  0,
-  currentTime:     0,
-  totalTime:       0,
-  currentTick:     0,
-  totalTicks:      0,
-  tempo:           120,
   playbackSpeed:   1.0,
   isLooping:       false,
   loopHighlight:   null,

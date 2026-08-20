@@ -1,10 +1,18 @@
 // stores/player.ts — reactive player state (Svelte writable store)
 
 import { writable, derived, get } from 'svelte/store';
-import { DEFAULT_PLAYER_STATE } from '$lib/types';
-import type { PlayerState } from '$lib/types';
+import { DEFAULT_PLAYER_STATE, DEFAULT_PLAYBACK_POSITION } from '$lib/types';
+import type { PlayerState, PlaybackPosition } from '$lib/types';
 
 export const playerStore = writable<PlayerState>({ ...DEFAULT_PLAYER_STATE });
+
+// Transport position — separate store on purpose. alphaTab fires
+// playerPositionChanged once per 128-sample audio quantum (~375/s); routing
+// that through playerStore re-ran every subscriber (control bar, loop
+// overlay, mixer, loading overlay, score viewer) at that rate. Only the
+// control bar reads this one, and AlphaTabManager flushes it at most every
+// POSITION_FLUSH_MS, aligned to animation frames.
+export const positionStore = writable<PlaybackPosition>({ ...DEFAULT_PLAYBACK_POSITION });
 
 // Convenience derived values for components that only need one field
 export const isPlaying       = derived(playerStore, $s => $s.isPlaying);
@@ -12,8 +20,8 @@ export const isReady         = derived(playerStore, $s => $s.isReady);
 export const playbackSpeed   = derived(playerStore, $s => $s.playbackSpeed);
 export const sfLoadProgress  = derived(playerStore, $s => $s.sfLoadProgress);
 export const progressPct     = derived(
-  playerStore,
-  $s => $s.totalTicks > 0 ? $s.currentTick / $s.totalTicks : 0,
+  positionStore,
+  $p => $p.totalTicks > 0 ? $p.currentTick / $p.totalTicks : 0,
 );
 
 // ── Speed trainer ─────────────────────────────────────────────────────────────
@@ -39,6 +47,10 @@ export function updatePlayer(patch: Partial<PlayerState>): void {
   playerStore.update(s => ({ ...s, ...patch }));
 }
 
+export function updatePosition(patch: Partial<PlaybackPosition>): void {
+  positionStore.update(p => ({ ...p, ...patch }));
+}
+
 /**
  * Reset playback counters while preserving user-configurable settings.
  * Called automatically on scoreLoaded so position/state resets cleanly.
@@ -53,4 +65,5 @@ export function resetPlayer(): void {
     masterVolume:     current.masterVolume,
     countInEnabled:   current.countInEnabled,
   });
+  positionStore.set({ ...DEFAULT_PLAYBACK_POSITION });
 }

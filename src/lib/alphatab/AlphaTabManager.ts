@@ -35,7 +35,7 @@
 
 // Import alphaTab as a namespace so we can access all sub-types.
 import * as alphaTab from '@coderline/alphatab';
-import { updatePlayer, resetPlayer, speedTrainerStore } from '$lib/stores/player';
+import { updatePlayer, updatePosition, resetPlayer, speedTrainerStore, positionStore } from '$lib/stores/player';
 import { toast } from '$lib/stores/notifications';
 import { setTracks } from '$lib/stores/tracks';
 import { updateEntryMeta } from '$lib/stores/library';
@@ -257,12 +257,16 @@ export function initAlphaTab(container: HTMLElement): void {
     scheduleIdleAudioSuspend();
   });
 
-  // 3. Position ticker — drives the scrubber + cursor synchronisation
+  // 3. Position ticker — drives the scrubber / time display.
   //    Event type is PositionChangedEventArgs (not exported directly from
-  //    the alphaTab namespace, so we let TypeScript infer it).
+  //    the alphaTab namespace, so we let TypeScript infer it). It fires once
+  //    per 128-sample audio quantum (~375/s at 48 kHz): keep the per-event
+  //    work to bookkeeping and flush the store on a throttled animation
+  //    frame (see flushPosition).
   api.playerPositionChanged.on((e) => {
+    latestTick = e.currentTick;
     maybeAdvanceSpeedTrainer(e.currentTick);
-    updatePlayer({
+    pendingPosition = {
       currentTime: e.currentTime,
       totalTime:   e.endTime,
       currentTick: e.currentTick,
@@ -271,7 +275,8 @@ export function initAlphaTab(container: HTMLElement): void {
       // position (unaffected by the user's playbackSpeed multiplier, which
       // ControlBar applies separately as effectiveBpm = tempo * playbackSpeed).
       tempo:       e.originalTempo,
-    });
+    };
+    schedulePositionFlush();
   });
 
   // 4. Play/pause state toggle
@@ -293,8 +298,10 @@ export function initAlphaTab(container: HTMLElement): void {
     api!.isLooping = false;
     forceClearLoopSelection();
 
+    cancelPositionFlush();
+    latestTick = 0;
     resetPlayer();
-    updatePlayer({ tempo: score.tempo });
+    updatePosition({ tempo: score.tempo });
 
     // Mutate the score BEFORE the scoreLoaded dispatch below — ScoreViewer
     // reacts to it synchronously, and alphaTab's own first render follows
@@ -546,6 +553,57 @@ function applyRealBoundsCursorHandler(api: alphaTab.AlphaTabApi): void {
       beatCursor.transitionToX(duration * factor, startBeatX + (nextBeatX - startBeatX) * factor);
     },
   };
+}
+
+// ── Throttled position flush ──────────────────────────────────────────────────
+// Latest position event, flushed to positionStore at most every
+// POSITION_FLUSH_MS and only on an animation frame (when the document is
+// hidden rAF stops, so a timer takes over at the same cadence). 20 Hz is
+// plenty for a 4 px scrubber and a mm:ss label; the beat cursor itself is
+// moved by alphaTab with a CSS transition and is unaffected.
+const POSITION_FLUSH_MS = 50;
+let pendingPosition: Parameters<typeof updatePosition>[0] | null = null;
+let positionFlushHandle: number | null = null;
+let positionFlushIsTimer = false;
+let lastPositionFlush = 0;
+// Tick of the most recent position event — read synchronously by the seek
+// helpers instead of the (throttled) store.
+let latestTick = 0;
+
+function schedulePositionFlush(): void {
+  if (positionFlushHandle !== null) return;
+  const wait = Math.max(0, POSITION_FLUSH_MS - (performance.now() - lastPositionFlush));
+  if (typeof document !== 'undefined' && document.hidden) {
+    positionFlushIsTimer = true;
+    positionFlushHandle = window.setTimeout(flushPosition, wait);
+  } else if (wait > 0) {
+    positionFlushIsTimer = true;
+    positionFlushHandle = window.setTimeout(() => {
+      positionFlushHandle = null;
+      schedulePositionFlush();
+    }, wait);
+  } else {
+    positionFlushIsTimer = false;
+    positionFlushHandle = requestAnimationFrame(flushPosition);
+  }
+}
+
+function flushPosition(): void {
+  positionFlushHandle = null;
+  if (!pendingPosition) return;
+  const next = pendingPosition;
+  pendingPosition = null;
+  lastPositionFlush = performance.now();
+  positionStore.set({ ...get(positionStore), ...next });
+}
+
+function cancelPositionFlush(): void {
+  if (positionFlushHandle !== null) {
+    if (positionFlushIsTimer) clearTimeout(positionFlushHandle);
+    else cancelAnimationFrame(positionFlushHandle);
+    positionFlushHandle = null;
+  }
+  pendingPosition = null;
 }
 
 // ── Idle AudioContext suspension ──────────────────────────────────────────────
@@ -1107,7 +1165,7 @@ function dedupeSectionMarkerText(score: alphaTab.model.Score): void {
 
 /** Index into the played sequence (tickCache.masterBars) at the current tick. */
 function currentPlayedBarIndex(): number {
-  const tick  = get(playerStore).currentTick;
+  const tick  = latestTick;
   const bars  = api!.tickCache?.masterBars ?? [];
   let idx = 0;
   for (let i = 0; i < bars.length; i++) {
@@ -1167,7 +1225,7 @@ function scrollBarIntoView(barIndex: number): void {
 /** Seek to the start of the previous bar (with a small hysteresis window). */
 export function seekToPrevBar(): void {
   if (!api) return;
-  const currentTick = get(playerStore).currentTick;
+  const currentTick = latestTick;
   const bars        = api.tickCache?.masterBars ?? [];
   for (let i = bars.length - 1; i >= 0; i--) {
     if (bars[i].start < currentTick - 200) {
@@ -1183,7 +1241,7 @@ export function seekToPrevBar(): void {
 /** Seek to the start of the next bar. */
 export function seekToNextBar(): void {
   if (!api) return;
-  const currentTick = get(playerStore).currentTick;
+  const currentTick = latestTick;
   const bars        = api.tickCache?.masterBars ?? [];
   for (let i = 0; i < bars.length; i++) {
     if (bars[i].start > currentTick + 100) {
@@ -1301,8 +1359,7 @@ export function seekToBar(modelIndex: number): void {
  */
 export function seekToFraction(fraction: number): void {
   if (!api) return;
-  const state = get(playerStore);
-  const tick  = Math.round(fraction * state.totalTicks);
+  const tick = Math.round(fraction * get(positionStore).totalTicks);
   api.tickPosition = tick;
 }
 
@@ -1445,6 +1502,7 @@ export function printScore(): void {
 
 export function destroyAlphaTab(): void {
   cancelIdleAudioSuspend();
+  cancelPositionFlush();
   api?.destroy();
   api          = null;
   viewportEl   = null;

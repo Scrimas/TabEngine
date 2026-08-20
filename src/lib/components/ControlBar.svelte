@@ -11,7 +11,7 @@
   import { save as tauriSave } from '@tauri-apps/plugin-dialog';
   import { invoke } from '@tauri-apps/api/core';
   import { toast } from '$lib/stores/notifications';
-  import { playerStore, speedTrainerStore } from '$lib/stores/player';
+  import { playerStore, positionStore, speedTrainerStore } from '$lib/stores/player';
   import { libraryStore } from '$lib/stores/library';
   import { overlayOpened, overlayClosed } from '$lib/stores/overlays';
   import { settingsStore, updateSettings } from '$lib/stores/settings';
@@ -34,10 +34,10 @@
 
   $: displayProgress = draggingScrubber
     ? scrubberPreview
-    : ($playerStore.totalTicks > 0 ? $playerStore.currentTick / $playerStore.totalTicks : 0);
+    : ($positionStore.totalTicks > 0 ? $positionStore.currentTick / $positionStore.totalTicks : 0);
 
-  $: displayTime  = formatTime($playerStore.currentTime);
-  $: displayTotal = formatTime($playerStore.totalTime);
+  $: displayTime  = formatTime($positionStore.currentTime);
+  $: displayTotal = formatTime($positionStore.totalTime);
 
   function toggleMetronome() { setMetronomeEnabled(!$playerStore.metronomeEnabled); }
   function toggleCountIn()   { setCountInEnabled(!$playerStore.countInEnabled); }
@@ -247,7 +247,7 @@
   }
 
   $: speedPct     = Math.round($playerStore.playbackSpeed * 100);
-  $: effectiveBpm = Math.round($playerStore.tempo * $playerStore.playbackSpeed);
+  $: effectiveBpm = Math.round($positionStore.tempo * $playerStore.playbackSpeed);
   $: rulerLeft    = pctToLeft(speedPct);
 
   function snapToStep(pct: number): number {
@@ -266,8 +266,8 @@
   }
   function onBpmInput(e: Event) {
     const bpm = Number((e.currentTarget as HTMLInputElement).value);
-    if (!bpm || $playerStore.tempo <= 0) return;
-    applySpeedPct((bpm / $playerStore.tempo) * 100);
+    if (!bpm || $positionStore.tempo <= 0) return;
+    applySpeedPct((bpm / $positionStore.tempo) * 100);
   }
 
   let draggingRuler = false;
@@ -402,7 +402,7 @@
   >
     {#if hoverFrac !== null && canPlay}
       <div class="scrub-preview" style="left:{hoverFrac * 100}%">
-        {formatTime(hoverFrac * $playerStore.totalTime)}
+        {formatTime(hoverFrac * $positionStore.totalTime)}
       </div>
     {/if}
     <div class="scrubber-fill" style="width:{displayProgress * 100}%"></div>
@@ -522,14 +522,14 @@
               <input
                 class="strip-bpm-input"
                 type="number"
-                min={Math.round($playerStore.tempo * SPEED_MIN / 100)}
-                max={Math.round($playerStore.tempo * SPEED_MAX / 100)}
+                min={Math.round($positionStore.tempo * SPEED_MIN / 100)}
+                max={Math.round($positionStore.tempo * SPEED_MAX / 100)}
                 value={effectiveBpm}
                 on:change={onBpmInput}
                 aria-label="Tempo in BPM"
               />
               <span class="strip-bpm-unit">bpm</span>
-              <span class="strip-bpm-song">/ {$playerStore.tempo}</span>
+              <span class="strip-bpm-song">/ {$positionStore.tempo}</span>
             </div>
             <button class="strip-btn" on:click={() => nudgeSpeedPct(SPEED_STEP)} aria-label="Increase tempo">+</button>
             <div class="strip-spacer"></div>

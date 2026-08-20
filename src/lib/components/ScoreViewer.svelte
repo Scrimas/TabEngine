@@ -8,7 +8,7 @@
     getTuningAnchor,
     play,
   } from '$lib/alphatab/AlphaTabManager';
-  import { playerStore } from '$lib/stores/player';
+  import { playerStore, positionStore } from '$lib/stores/player';
   import { tracksStore } from '$lib/stores/tracks';
   import { get } from 'svelte/store';
   import LoadingOverlay from './LoadingOverlay.svelte';
@@ -245,7 +245,7 @@
   <LoadingOverlay {scoreReady} {loadFailed} />
 
   <!-- Drop hint -->
-  {#if !$playerStore.sfLoaded || (!scoreReady && $playerStore.totalTicks === 0)}
+  {#if !$playerStore.sfLoaded || (!scoreReady && $positionStore.totalTicks === 0)}
     <!-- Visible instructions must stay in the a11y tree; only the icon is decorative -->
     <div class="drop-hint" class:active={isDragOver}>
       <div class="drop-icon" aria-hidden="true">
