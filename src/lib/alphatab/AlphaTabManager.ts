@@ -593,7 +593,6 @@ export function play():      void { api?.play(); }
 export function pause():     void { api?.pause(); }
 export function playPause(): void { api?.playPause(); }
 export function stop():      void { api?.stop(); }
-export function resize():    void { api?.render(); }
 
 // ── Settings mutations ────────────────────────────────────────────────────────
 

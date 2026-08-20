@@ -6,7 +6,6 @@
     destroyAlphaTab,
     setVisibleTracks,
     getTuningAnchor,
-    resize,
     play,
   } from '$lib/alphatab/AlphaTabManager';
   import { playerStore } from '$lib/stores/player';
@@ -56,12 +55,6 @@
   let resizeObserver: ResizeObserver | null = null;
   let resizeTimer: any = null;
 
-  // Observer that hides vibrato/watermark text after each render. Kept at
-  // component scope so the previous one can be disconnected on re-render —
-  // observers are never released while observing, so one-per-render would
-  // accumulate across track switches and file loads.
-  let vibratoObserver: MutationObserver | null = null;
-
   // ── Mount / lifecycle ────────────────────────────────────────────────────────
   onMount(() => {
     initAlphaTab(containerEl);
@@ -77,30 +70,6 @@
     containerEl.addEventListener('tabengine:renderFinished', () => {
       scoreReady = true;
       atMainEl = containerEl.querySelector<HTMLElement>('.at-main');
-
-      const hideVibratoText = () => {
-        if (!atMainEl) return;
-        const textElements = atMainEl.querySelectorAll('svg text, svg tspan');
-        textElements.forEach((el: any) => {
-          const txt = el.textContent || '';
-          const clean = txt.replace(/[^a-zA-Z\~\u007E]/g, '');
-          const isVibrato = clean.length > 0 && /^[vVwW\~\u007E]+$/.test(clean);
-          const isWatermark = txt.trim().toLowerCase() === 'rendered by alphatab';
-          if (isVibrato || isWatermark) {
-            el.style.display = 'none';
-            if (el.parentNode && el.parentNode.tagName === 'text') {
-              (el.parentNode as HTMLElement).style.display = 'none';
-            }
-          }
-        });
-      };
-
-      // Run immediately and observe for any late DOM additions (SVG engine)
-      hideVibratoText();
-      vibratoObserver?.disconnect();
-      vibratoObserver = new MutationObserver(hideVibratoText);
-      if (atMainEl) vibratoObserver.observe(atMainEl, { childList: true, subtree: true });
-
       refreshTuningLabels();
     });
 
@@ -132,14 +101,17 @@
       loadFile(nextPath);
     });
 
-    // Dynamic resize debouncer to prevent layout transitions from stuttering the canvas render
+    // alphaTab watches its own container and re-lays the score out on width
+    // changes (10 ms throttle, `resizeRender` = cheap layout.resize, which
+    // also fires postRenderFinished → refreshTuningLabels above). Calling
+    // api.render() here on top of that meant every panel toggle / window
+    // resize did a second, full layout + render through the worker. Only
+    // height-only resizes (no alphaTab re-layout) still need the labels
+    // re-measured, hence this debounced refresh.
     resizeObserver = new ResizeObserver(() => {
       if (resizeTimer) clearTimeout(resizeTimer);
       resizeTimer = setTimeout(() => {
-        if (scoreReady) {
-          resize();
-          refreshTuningLabels();
-        }
+        if (scoreReady) refreshTuningLabels();
       }, 150);
     });
     resizeObserver.observe(containerEl);
@@ -158,7 +130,6 @@
 
   onDestroy(() => {
     resizeObserver?.disconnect();
-    vibratoObserver?.disconnect();
     if (resizeTimer) clearTimeout(resizeTimer);
     unlistenDragDrop?.();
     destroyAlphaTab();
@@ -555,6 +526,15 @@
   }
   :global(.at-surface) {
     cursor: default;
+  }
+  /* alphaTab's page layout always registers its "rendered by alphaTab"
+     annotation as the LAST partial, i.e. the last placeholder div of the
+     surface. Hiding it here replaces a MutationObserver that re-scanned every
+     <text> of the whole score on each lazy-partial attach/detach (i.e. on
+     every scroll step during playback) looking for that string — and for
+     "vibrato text", which alphaTab 1.8 no longer renders as text at all. */
+  :global(.at-surface > div:last-child) {
+    display: none;
   }
 
 </style>

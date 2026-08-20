@@ -21,11 +21,21 @@
   async function refreshMaximized() {
     try { isMaximized = await win.isMaximized(); } catch { /* keep last */ }
   }
+  // onResized fires for every frame of an interactive resize; one IPC
+  // round-trip per frame is pointless, the state only matters once it settles.
+  let maximizedTimer: ReturnType<typeof setTimeout> | null = null;
+  function refreshMaximizedDebounced() {
+    if (maximizedTimer) clearTimeout(maximizedTimer);
+    maximizedTimer = setTimeout(() => { maximizedTimer = null; refreshMaximized(); }, 150);
+  }
   onMount(() => {
     refreshMaximized();
     let unlisten: UnlistenFn | null = null;
-    win.onResized(() => refreshMaximized()).then(fn => { unlisten = fn; });
-    return () => unlisten?.();
+    win.onResized(refreshMaximizedDebounced).then(fn => { unlisten = fn; });
+    return () => {
+      unlisten?.();
+      if (maximizedTimer) clearTimeout(maximizedTimer);
+    };
   });
 </script>
 
