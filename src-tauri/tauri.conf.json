@@ -30,7 +30,8 @@
     ],
 
     "security": {
-      "csp": "default-src 'self' tauri: asset: https://ipc.localhost; worker-src 'self' blob:; script-src 'self' 'unsafe-eval' blob:; style-src 'self' 'unsafe-inline'; media-src 'self' blob: data:; img-src 'self' data: blob:; connect-src 'self' ipc: http://ipc.localhost tauri: asset: https://ipc.localhost; font-src 'self' data:"
+      "csp": "default-src 'self' tauri: asset: https://ipc.localhost; worker-src 'self' blob:; script-src 'self' 'unsafe-eval' blob:; style-src 'self' 'unsafe-inline'; media-src 'self' blob: data:; img-src 'self' data: blob:; connect-src 'self' ipc: http://ipc.localhost tauri: asset: https://ipc.localhost; font-src 'self' data:",
+      "dangerousDisableAssetCspModification": ["style-src"]
     }
   },
 
