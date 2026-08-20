@@ -8,9 +8,12 @@ edition     = "2021"
 rust-version = "1.77"
 
 # The lib crate is compiled for both the tauri runner and for tests.
+# rlib only: staticlib/cdylib are for Tauri mobile targets, and every build
+# (debug and release, even `cargo build --bins`) also archived a ~800 MB .a
+# and LTO-linked a .so that nothing loads.
 [lib]
 name       = "tabengine_lib"
-crate-type = ["staticlib", "cdylib", "rlib"]
+crate-type = ["rlib"]
 
 # Binary name is capitalized to match `productName` in tauri.conf.json, so the
 # built binary and desktop entry stay consistent with the app's branding.
@@ -38,6 +41,18 @@ percent-encoding = "2"
 # custom-protocol bundles the Vite dist into the binary (production builds)
 default          = ["custom-protocol"]
 custom-protocol  = ["tauri/custom-protocol"]
+
+# ── dev profile (`tauri dev`) ─────────────────────────────────────────────────
+[profile.dev]
+# Line tables are enough for panic backtraces; full DWARF made the debug
+# binary 267 MB and dominated link time on every rebuild.
+debug = "line-tables-only"
+
+[profile.dev.package."*"]
+# Optimise dependencies even in dev: tauri/serde_json/reqwest at opt-level 0
+# make every IPC round-trip 10-50x slower than release. App code itself stays
+# unoptimised for fast incremental rebuilds (one-time full dep rebuild).
+opt-level = 2
 
 # ── release profile ───────────────────────────────────────────────────────────
 [profile.release]

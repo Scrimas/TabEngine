@@ -21,7 +21,13 @@ function alphatabTabStylePatch(): Plugin {
     name: 'alphatab-tab-style-patch',
     transform(code, id) {
       if (isAlphaTabCoreModule(id)) {
-        return { code: applyTabStylePatch(code), map: null };
+        // `mappings: ''` (not `map: null`): with a null map Vite's dev-server
+        // import analysis generates a hi-res source map with sourcesContent
+        // for this 65k-line module and inlines it — the dev response grew
+        // from 2.35 MB to 12.3 MB, fetched by the main thread AND the render
+        // worker, synth worker and audio worklet on every start (and WebKit
+        // caches every variant on disk). An empty map nullifies the chain.
+        return { code: applyTabStylePatch(code), map: { mappings: '' } };
       }
     },
   };
