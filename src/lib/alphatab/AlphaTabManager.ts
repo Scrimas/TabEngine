@@ -39,9 +39,10 @@ import { updatePlayer, resetPlayer, speedTrainerStore } from '$lib/stores/player
 import { toast } from '$lib/stores/notifications';
 import { setTracks } from '$lib/stores/tracks';
 import { updateEntryMeta } from '$lib/stores/library';
+// woff2 only: every Tauri webview (WebKitGTK, WebView2, WKWebView) supports
+// it, and the browser only ever fetched the first supported source anyway —
+// the .woff/.otf fallbacks were 1.06 MB of dead weight in the bundle.
 import bravuraWoff2 from '@coderline/alphatab/font/Bravura.woff2?url';
-import bravuraWoff from '@coderline/alphatab/font/Bravura.woff?url';
-import bravuraOtf from '@coderline/alphatab/font/Bravura.otf?url';
 import sonivoxSf2 from '@coderline/alphatab/soundfont/sonivox.sf2?url';
 import { TRACK_COLORS, formatTuning } from '$lib/types';
 import type { TrackState, LoopHighlightBounds } from '$lib/types';
@@ -131,8 +132,6 @@ export function initAlphaTab(container: HTMLElement): void {
       // why this matters under Tauri's asset protocol.
       smuflFontSources: new Map([
         [alphaTab.FontFileFormat.Woff2, bravuraWoff2],
-        [alphaTab.FontFileFormat.Woff,  bravuraWoff],
-        [alphaTab.FontFileFormat.OpenType, bravuraOtf],
       ]),
     },
     display: {

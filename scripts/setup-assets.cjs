@@ -27,16 +27,21 @@
  * alphaTab.core.mjs gets the tab-style patch appended (detached rhythm strip,
  * no TAB clef — see scripts/alphatab-tab-style-patch.cjs): these copies are
  * what the production render worker loads, and they bypass Vite's transforms,
- * so the Vite plugin alone would leave the worker unpatched. The other files
- * are copied verbatim. (An unrelated vibrato-glyph remap was briefly applied
- * here; the approved app look is the unpatched glyph rendering — see the note
- * in vite.config.ts.)
+ * so the Vite plugin alone would leave the worker unpatched. The patched
+ * module is then minified with esbuild (Vite's own dependency): the verbatim
+ * copy was 2.35 MB of unminified source, parsed and compiled by THREE
+ * contexts (render worker, synth worker, audio worklet) on every start and
+ * shipped in the bundle on top of the 1.2 MB minified main-thread chunk.
+ * The other files are copied verbatim. (An unrelated vibrato-glyph remap was
+ * briefly applied here; the approved app look is the unpatched glyph
+ * rendering — see the note in vite.config.ts.)
  */
 
 'use strict';
 const fs   = require('fs');
 const path = require('path');
 const { applyTabStylePatch } = require('./alphatab-tab-style-patch.cjs');
+const esbuild = require('esbuild');
 
 const ROOT       = path.resolve(__dirname, '..');
 const AT_DIST    = path.join(ROOT, 'node_modules', '@coderline', 'alphatab', 'dist');
@@ -66,8 +71,18 @@ console.log('\nTabEngine postinstall: setting up alphaTab worker assets...');
 
 ensureDir(ASSETS_DIR);
 
+/** Tab-style patch, then minify (ESM, export names are never mangled). */
+function patchAndMinify(code) {
+  return esbuild.transformSync(applyTabStylePatch(code), {
+    minify: true,
+    format: 'esm',
+    target: 'esnext',
+    legalComments: 'inline', // keep alphaTab's MPL license header
+  }).code;
+}
+
 for (const file of ['alphaTab.worker.mjs', 'alphaTab.worklet.mjs', 'alphaTab.core.mjs']) {
-  const patch = file === 'alphaTab.core.mjs' ? applyTabStylePatch : null;
+  const patch = file === 'alphaTab.core.mjs' ? patchAndMinify : null;
   copy(path.join(AT_DIST, file), path.join(ASSETS_DIR, file), file, patch);
 }
 
