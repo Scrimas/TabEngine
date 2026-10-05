@@ -80,7 +80,7 @@ Tauri keeps the app small — no Electron/Chromium bundled in, just your OS's na
 
 ## License
 
-[GPLv3](LICENSE) — free forever, and any derivative work has to stay free too.
+Copyright (C) 2026 Scrimas. Licensed under the [GNU GPL, version 3 or (at your option) any later version](LICENSE) (`GPL-3.0-or-later`) — free forever, and any derivative work has to stay free too. When the FSF publishes a GPLv4, TabEngine can be used under it with no change here.
 
 <p align="center">
   <a href="https://www.codefactor.io/repository/github/scrimas/tabengine"><img src="https://www.codefactor.io/repository/github/scrimas/tabengine/badge" alt="CodeFactor"></a>
