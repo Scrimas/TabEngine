@@ -1,113 +1,192 @@
-name: Release Build
+name: Release builds
+
+# Standalone binaries, no installers:
+#   TabEngine_<version>_amd64.AppImage      built on Ubuntu 24.04 (glibc >= 2.39), WebKitGTK + GStreamer inside
+#   TabEngine_<version>_x64.exe             portable exe, C runtime linked in (needs WebView2, part of Windows 10/11)
+#   TabEngine_<version>_universal.app.zip   macOS app for Apple Silicon and Intel, ad-hoc signed
+# A v* tag drafts a GitHub Release with them (never published here); a manual run keeps them as
+# workflow artifacts. Tag runs only restore caches saved on the default branch, so a manual run
+# on main warms the Rust cache for the next release.
 
 on:
   push:
-    tags:
-      - "v*" # Triggers the workflow when you push a version tag like v1.0.0
-  workflow_dispatch: # Allows you to manually trigger the build from the Actions tab
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  CARGO_TERM_COLOR: always
+
+defaults:
+  run:
+    shell: bash
 
 jobs:
-  release:
-    permissions:
-      contents: write # Crucial for allowing the action to create a GitHub Release
+  meta:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      version: ${{ steps.ver.outputs.version }}
+    steps:
+      - uses: actions/checkout@v7
 
+      - name: Version
+        id: ver
+        run: |
+          pkg=$(node -p "require('./package.json').version")
+          conf=$(node -p "require('./src-tauri/tauri.conf.json').version")
+          crate=$(sed -n 's/^version *= *"\(.*\)"/\1/p' src-tauri/Cargo.toml | head -1)
+          if [ "$pkg" != "$conf" ] || [ "$pkg" != "$crate" ]; then
+            echo "::error::version mismatch: package.json $pkg, tauri.conf.json $conf, Cargo.toml $crate"
+            exit 1
+          fi
+          if [ "$GITHUB_REF_TYPE" = tag ] && [ "$GITHUB_REF_NAME" != "v$pkg" ]; then
+            echo "::error::tag $GITHUB_REF_NAME does not match version $pkg"
+            exit 1
+          fi
+          echo "version=$pkg" >> "$GITHUB_OUTPUT"
+
+  build:
+    name: build (${{ matrix.name }})
+    needs: meta
     strategy:
       fail-fast: false
       matrix:
         include:
-          - platform: "windows-latest"
-          - platform: "macos-latest"
-          - platform: "ubuntu-24.04" # Best compatibility for building Linux AppImages
-
-    runs-on: ${{ matrix.platform }}
+          - name: linux
+            os: ubuntu-24.04
+            args: --bundles appimage
+          - name: windows
+            os: windows-latest
+            args: --no-bundle
+          - name: macos
+            os: macos-latest
+            targets: aarch64-apple-darwin,x86_64-apple-darwin
+            args: --target universal-apple-darwin --bundles app
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    env:
+      VER: ${{ needs.meta.outputs.version }}
+      # Windows: link the MSVC runtime into the exe, so it runs without vcruntime140.dll
+      STATIC_VCRUNTIME: "true"
+      # AppImage type 2 runtime used to repack the AppImage, pinned by release and checksum
+      RUNTIME_URL: https://github.com/AppImage/type2-runtime/releases/download/20251108/runtime-x86_64
+      RUNTIME_SHA256: 2fca8b443c92510f1483a883f60061ad09b46b978b2631c807cd873a47ec260d
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: 20
-          cache: "npm"
-
-      - name: Install Rust stable
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          # Targets required for building universal macOS binaries if on a Mac runner
-          targets: ${{ matrix.platform == 'macos-latest' && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
-
-      - name: Install Linux dependencies
-        if: matrix.platform == 'ubuntu-24.04'
+      # Only what the build links or the AppImage bundles: no OpenSSL (reqwest uses rustls),
+      # no libxdo or appindicator (no menu accelerators, no tray).
+      - name: Linux dependencies
+        if: runner.os == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y \
-            libwebkit2gtk-4.1-dev \
-            build-essential \
-            curl \
-            wget \
-            file \
-            libxdo-dev \
-            libssl-dev \
-            libayatana-appindicator3-dev \
-            librsvg2-dev \
-            squashfs-tools \
-            gstreamer1.0-plugins-base \
-            gstreamer1.0-plugins-good \
-            gstreamer1.0-pulseaudio
+          sudo apt-get install -y libwebkit2gtk-4.1-dev librsvg2-dev squashfs-tools \
+            gstreamer1.0-plugins-base gstreamer1.0-plugins-good gstreamer1.0-pulseaudio
 
-      - name: Install npm dependencies
-        run: npm ci
-
-      - name: Build and Package App
-        uses: tauri-apps/tauri-action@v0
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - uses: actions/setup-node@v7
         with:
-          tagName: ${{ github.ref_name }}
-          releaseName: "TabEngine v__VERSION__"
-          releaseBody: "Automated release binaries for TabEngine. See assets below."
-          releaseDraft: true
-          prerelease: false
+          node-version: lts/*
+          cache: npm
 
-      # linuxdeploy bundles its own (runner-era) libwayland-client/cursor/egl/server
-      # into the AppImage. Its AppRun prepends the bundle to LD_LIBRARY_PATH, shadowing the
-      # host's libs — on newer Wayland compositors this breaks WebKitGTK's EGL init
-      # (EGL_BAD_PARAMETER, WebKitWebProcess aborts). Every desktop capable of running
-      # webkit2gtk-4.1 already ships compatible wayland libs system-wide, so stripping the
-      # bundled copies and repacking is safe and lets the AppImage fall through to the host.
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.targets }}
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - run: npm ci
+
+      - name: Build
+        run: npx tauri build ${{ matrix.args }}
+
+      # linuxdeploy bundles the runner's libwayland-client/cursor/egl/server, and its AppRun
+      # puts the bundle first on LD_LIBRARY_PATH, shadowing the host's copies. On newer
+      # compositors that breaks WebKitGTK's EGL init (EGL_BAD_PARAMETER, WebKitWebProcess
+      # aborts). Every desktop that can run webkit2gtk-4.1 has compatible wayland libs, so
+      # they are removed and the AppImage is repacked (zstd, pinned runtime).
       #
-      # NOTE on the runner choice: this job must run on ubuntu-24.04 or newer, and
-      # libfreetype must NOT be bundled (linuxdeploy rightly excludes it). The bundled
-      # WebKit's Skia is compiled against the runner's FreeType headers but runs against
-      # the host's libfreetype, and FreeType's COLRv1 color-font API had an ABI break
-      # before stabilizing in 2.13.0. Building on 22.04 (FreeType 2.11) made Skia index
-      # COLRv1 color stops out of bounds on any host with FreeType >= 2.13 and a COLRv1
-      # emoji font — a glibcxx assertion abort in colrv1_configure_skpaint (#5). Bundling
-      # the 22.04 libfreetype instead broke font loading wholesale (blank alphaTab score,
-      # runaway WebProcess). 24.04's FreeType 2.13.2 headers are post-stabilization and
-      # ABI-compatible with current hosts, so no freetype hack is needed at all.
-      - name: Fix bundled library set in AppImage
-        if: matrix.platform == 'ubuntu-24.04'
+      # Ubuntu 24.04 or newer is required: the bundled WebKit's Skia is compiled against the
+      # runner's FreeType headers but runs against the host's libfreetype (not bundled), and
+      # FreeType's COLRv1 API changed ABI before 2.13. Built on 22.04 (FreeType 2.11), Skia
+      # aborted in colrv1_configure_skpaint on hosts with FreeType >= 2.13 and a COLRv1 emoji
+      # font (#5); 24.04 ships 2.13.2.
+      - name: Package (Linux)
+        if: runner.os == 'Linux'
         run: |
           set -euo pipefail
-          APPIMAGE=$(find src-tauri/target/release/bundle/appimage -name '*.AppImage' | head -1)
-          chmod +x "$APPIMAGE"
-          "$APPIMAGE" --appimage-extract >/dev/null
+          src=$(find src-tauri/target/release/bundle/appimage -name '*.AppImage' | head -1)
+          chmod +x "$src"
+          "$src" --appimage-extract >/dev/null
+          find squashfs-root -name WebKitWebProcess | grep -q . ||
+            { echo "::error::WebKitWebProcess missing from the AppImage"; exit 1; }
           rm -f squashfs-root/usr/lib/libwayland-client.so.0 \
                 squashfs-root/usr/lib/libwayland-cursor.so.0 \
                 squashfs-root/usr/lib/libwayland-egl.so.1 \
                 squashfs-root/usr/lib/libwayland-server.so.0
-          curl -fsSL -o appimagetool https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-x86_64.AppImage
-          chmod +x appimagetool
-          rm -f "$APPIMAGE"
-          ARCH=x86_64 ./appimagetool --appimage-extract-and-run squashfs-root "$APPIMAGE"
-          rm -rf squashfs-root appimagetool
+          curl -fsSL -o "$RUNNER_TEMP/runtime" "$RUNTIME_URL"
+          echo "$RUNTIME_SHA256  $RUNNER_TEMP/runtime" | sha256sum -c -
+          mksquashfs squashfs-root "$RUNNER_TEMP/app.squashfs" -root-owned -noappend \
+            -comp zstd -Xcompression-level 19 -b 1M -quiet -no-progress
+          mkdir -p out
+          cat "$RUNNER_TEMP/runtime" "$RUNNER_TEMP/app.squashfs" > "out/TabEngine_${VER}_amd64.AppImage"
+          chmod +x out/*.AppImage
 
-      - name: Re-upload patched AppImage to draft release
-        if: matrix.platform == 'ubuntu-24.04'
+      - name: Package (Windows)
+        if: runner.os == 'Windows'
+        run: |
+          mkdir -p out
+          cp src-tauri/target/release/TabEngine.exe "out/TabEngine_${VER}_x64.exe"
+
+      - name: Package (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          mkdir -p out
+          ditto -c -k --sequesterRsrc --keepParent \
+            src-tauri/target/universal-apple-darwin/release/bundle/macos/TabEngine.app \
+            "out/TabEngine_${VER}_universal.app.zip"
+
+      # Uploaded as the file itself (not zipped), so a manual run's artifact is ready to use.
+      - uses: actions/upload-artifact@v7
+        with:
+          path: out/*
+          archive: false
+          if-no-files-found: error
+
+  release:
+    needs: [meta, build]
+    if: github.ref_type == 'tag'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: TabEngine_*
+          path: out
+          merge-multiple: true
+
+      - name: Draft release
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ github.token }}
+          VER: ${{ needs.meta.outputs.version }}
         run: |
           set -euo pipefail
-          APPIMAGE=$(find src-tauri/target/release/bundle/appimage -name '*.AppImage' | head -1)
-          gh release upload "${{ github.ref_name }}" "$APPIMAGE" --clobber --repo "${{ github.repository }}"
+          cd out
+          ls -l
+          sha256sum TabEngine_* > SHA256SUMS.txt
+          if gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release upload "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --clobber -- *
+          else
+            gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --draft --verify-tag \
+              --title "TabEngine v$VER" --generate-notes -- *
+          fi

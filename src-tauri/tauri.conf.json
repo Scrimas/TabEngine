@@ -37,7 +37,7 @@
 
   "bundle": {
     "active": true,
-    "targets": ["nsis", "dmg", "appimage"],
+    "targets": ["app", "appimage"],
     "publisher": "Scrimas",
     "icon": [
       "icons/32x32.png",
@@ -50,6 +50,9 @@
       "appimage": {
         "bundleMediaFramework": true
       }
+    },
+    "macOS": {
+      "signingIdentity": "-"
     }
   },
 

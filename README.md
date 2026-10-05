@@ -39,17 +39,17 @@ Found a bug or something feels broken? Open an issue. Want to fix it yourself? P
 
 ## Installation notes
 
-Prebuilt binaries (Windows, macOS, Linux) are attached to each [release](https://github.com/Scrimas/TabEngine/releases/latest/). Working as of **v0.1.7**.
+Prebuilt binaries (Windows, macOS, Linux) are attached to each [release](https://github.com/Scrimas/TabEngine/releases/latest/), with a `SHA256SUMS.txt`. They're standalone: no installer, just download and run.
 Heads up: they're **unsigned** — I don't pay for a Windows code-signing certificate or an Apple developer account ($99/year), so your OS will flag the app as coming from an unverified developer. Don't worry, that's expected, not a red flag. Here's how to get past it:
 
-- **Windows (`.exe`)** — SmartScreen will show "Windows protected your PC." Click **More info** → **Run anyway**.
-- **macOS (`.dmg`)** — Gatekeeper will block the app as from an unidentified developer. Right-click the app in Applications and choose **Open**, or clear the quarantine flag manually:
+- **Windows (`_x64.exe`)** — a portable exe, run it from anywhere. SmartScreen will show "Windows protected your PC." Click **More info** → **Run anyway**. Needs the Microsoft Edge WebView2 runtime, which Windows 10 and 11 already include.
+- **macOS (`_universal.app.zip`)** — runs on Apple Silicon and Intel. Unzip it and move `TabEngine.app` wherever you like (e.g. Applications). Gatekeeper will block it as from an unidentified developer; clear the quarantine flag once:
   ```bash
   xattr -cr /Applications/TabEngine.app
   ```
 - **Linux (`.AppImage`)** — no signing required. Just mark it executable and run it:
   ```bash
-  chmod +x TabEngine_0.1.7_amd64.AppImage
+  chmod +x TabEngine_*_amd64.AppImage
   ```
   Requires glibc ≥ 2.39 (Ubuntu 24.04+, Fedora 40+, or any rolling-release distro). On older distros, build from source instead.
 
